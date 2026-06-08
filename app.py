@@ -22,16 +22,10 @@ def create_app():
         return User.query.get(int(user_id))
 
     # ──────────────────────────────────────────
-    # АВТОРИЗАЦИЯ
-    # ──────────────────────────────────────────
-        # ──────────────────────────────────────────
     # ВРЕМЕННЫЙ МАРШРУТ ДЛЯ ИНИЦИАЛИЗАЦИИ БД
     # ──────────────────────────────────────────
     @app.route('/init-db')
     def init_db_route():
-        from models import db, User, Location, Material, Batch, Category
-        from datetime import date
-        
         db.drop_all()
         db.create_all()
 
@@ -88,6 +82,10 @@ def create_app():
 
         db.session.commit()
         return 'База данных создана! <a href="/">Войти</a>'
+
+    # ──────────────────────────────────────────
+    # АВТОРИЗАЦИЯ
+    # ──────────────────────────────────────────
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         if current_user.is_authenticated:
