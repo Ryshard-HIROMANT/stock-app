@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Расход — Склад МедМатериалов{% endblock %}
+
+{% block content %}
+<h1 class="mb-4"><i class="bi bi-box-arrow-up"></i> Расход материалов</h1>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST" id="outForm">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label for="category_filter" class="form-label">Категория</label>
+                    <select class="form-select" id="category_filter" name="category_filter">
+                        <option value="">— Все категории —</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label for="material_id" class="form-label">Материал *</label>
+                    <div class="input-group">
+                        <select class="form-select" id="material_id" name="material_id" required>
+                            <option value="">— Выберите материал —</option>
+                            {% for m in materials %}
+                            <option value="{{ m.id }}" data-category="{{ m.category_id or '' }}"
+                                    {% if selected_material and selected_material.id == m.id %}selected{% endif %}>
+                                {{ m.name }} {{ m.size or '' }} ({{ m.category_name or '—' }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <button type="button" class="btn btn-outline-primary" id="scanOutBtn" title="Сканировать штрихкод">
+                            <i class="bi bi-camera"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label for="quantity" class="form-label">Количество *</label>
+                    <input type="number" class="form-control" id="quantity" name="quantity"
+                           min="1" value="1" required>
+                </div>
+            </div>
+            <!-- Сканер -->
+            <div id="outScannerContainer" style="display:none; margin-bottom: 15px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
+                <div id="outMiniScanner" style="width: 100%; max-width: 300px; margin: 0 auto;"></div>
+                <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopOutScannerBtn">
+                    <i class="bi bi-stop-circle"></i> Остановить сканер
+                </button>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="note" class="form-label">Примечание</label>
+                    <input type="text" class="form-control" id="note" name="note"
+                           placeholder="Кому / куда выдано">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-danger btn-lg">
+                <i class="bi bi-check-circle"></i> Оформить расход
+            </button>
+            <a href="/" class="btn btn-secondary btn-lg">Отмена</a>
+        </form>
+    </div>
+</div>
+
+<div class="alert alert-info mt-3">
+    <i class="bi bi-info-circle"></i> <strong>FIFO:</strong> расход списывается из партий с ближайшим сроком годности автоматически.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const categoryFilter = document.getElementById('category_filter');
+const materialSelect = document.getElementById('material_id');
+const allOptions = Array.from(materialSelect.options);
+
+// Фильтр материалов по категории
+categoryFilter.addEventListener('change', function() {
+    const selectedCategory = this.value;
+    materialSelect.innerHTML = '<option value="">— Выберите материал —</option>';
+    
+    allOptions.forEach(opt => {
+        if (opt.value === '') return;
+        const cat = opt.getAttribute('data-category');
+        if (!selectedCategory || cat === selectedCategory) {
+            materialSelect.appendChild(opt.cloneNode(true));
+        }
+    });
+    
+    // Если был выбран материал не из этой категории — сбрасываем
+    if (materialSelect.value === '') {
+        materialSelect.selectedIndex = 0;
+    }
+});
+
+// ──────────────────────────────────────────
+// СКАНЕР ДЛЯ ПОИСКА МАТЕРИАЛА
+// ──────────────────────────────────────────
+let outScanner = null;
+const scanOutBtn = document.getElementById('scanOutBtn');
+const stopOutBtn = document.getElementById('stopOutScannerBtn');
+const outScannerContainer = document.getElementById('outScannerContainer');
+
+scanOutBtn.addEventListener('click', function() {
+    outScannerContainer.style.display = 'block';
+    scanOutBtn.disabled = true;
+
+    outScanner = new Html5Qrcode("outMiniScanner");
+
+    outScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 100 } },
+        (decodedText) => {
+            flashOutBorder('green');
+            stopOutScanner();
+            // Ищем материал по штрихкоду
+            findAndSelectMaterial(decodedText);
+        },
+        () => {}
+    ).catch(err => {
+        alert('Ошибка доступа к камере: ' + err.message);
+        outScannerContainer.style.display = 'none';
+        scanOutBtn.disabled = false;
+    });
+});
+
+stopOutBtn.addEventListener('click', function() { stopOutScanner(); });
+
+function stopOutScanner() {
+    if (outScanner) {
+        outScanner.stop().then(() => {
+            outScannerContainer.style.display = 'none';
+            scanOutBtn.disabled = false;
+            outScanner = null;
+        }).catch(() => {
+            outScannerContainer.style.display = 'none';
+            scanOutBtn.disabled = false;
+            outScanner = null;
+        });
+    }
+}
+
+function flashOutBorder(color) {
+    outScannerContainer.style.borderColor = color;
+    setTimeout(() => { outScannerContainer.style.borderColor = '#ccc'; }, 1000);
+}
+
+function findAndSelectMaterial(barcode) {
+    fetch(`/api/material-by-barcode?barcode=${encodeURIComponent(barcode)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.found) {
+                const m = data.material;
+                
+                // Сначала сбрасываем фильтр категории — показываем все
+                categoryFilter.value = '';
+                categoryFilter.dispatchEvent(new Event('change'));
+                
+                // Небольшая задержка, чтобы DOM обновился
+                setTimeout(() => {
+                    // Выбираем материал
+                    for (let i = 0; i < materialSelect.options.length; i++) {
+                        if (materialSelect.options[i].value == m.id) {
+                            materialSelect.selectedIndex = i;
+                            break;
+                        }
+                    }
+                    // Если не нашли (материал есть в базе, но не в списке) — перезагружаем
+                    if (materialSelect.value != m.id) {
+                        location.reload();
+                    }
+                    // Фокус на количество
+                    document.getElementById('quantity').focus();
+                    document.getElementById('quantity').select();
+                }, 100);
+                
+                flash('Материал найден: ' + m.name, 'success');
+            } else {
+                alert('Материал с таким штрихкодом не найден!\nШтрихкод: ' + barcode);
+            }
+        });
+}
+
+// Функция для flash-сообщений
+function flash(message, category) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${category} alert-dismissible fade show`;
+    alertDiv.innerHTML = `${message} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+    const main = document.querySelector('main');
+    main.insertBefore(alertDiv, main.firstChild);
+}
+
+// Очистка сканера при уходе
+window.addEventListener('beforeunload', function() { stopOutScanner(); });
+
+// Фокус на количество при загрузке, если материал уже выбран
+if (materialSelect.value) {
+    document.getElementById('quantity').focus();
+}
+</script>
+{% endblock %}

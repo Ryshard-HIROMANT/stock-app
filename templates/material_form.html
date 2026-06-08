@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Редактировать' if material else 'Добавить' }} материал — Склад{% endblock %}
+
+{% block content %}
+<h1>
+    {% if material %}
+        <i class="bi bi-pencil"></i> Редактировать: {{ material.name }}
+    {% else %}
+        <i class="bi bi-plus-circle"></i> Добавить материал
+    {% endif %}
+</h1>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST">
+            <div class="mb-3">
+                <label for="name" class="form-label">Название *</label>
+                <input type="text" class="form-control" id="name" name="name"
+                       value="{{ material.name if material else '' }}" required>
+            </div>
+            <div class="mb-3">
+                <label for="size" class="form-label">Размер (5F, 6F и т.д.)</label>
+                <input type="text" class="form-control" id="size" name="size"
+                       value="{{ material.size if material else '' }}">
+            </div>
+            <div class="mb-3">
+                <label for="barcode" class="form-label">Штрихкод</label>
+                <div class="input-group">
+                    <input type="text" class="form-control" id="barcode" name="barcode"
+                           value="{{ material.barcode if material else '' }}" placeholder="Введите или отсканируйте">
+                    <button type="button" class="btn btn-outline-primary" id="scanBarcodeBtn" title="Сканировать штрихкод">
+                        <i class="bi bi-camera"></i>
+                    </button>
+                </div>
+                <div id="barcodeScannerContainer" style="display:none; margin-top: 10px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
+                    <div id="barcodeMiniScanner" style="width: 100%; max-width: 300px; margin: 0 auto;"></div>
+                    <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopBarcodeScannerBtn">
+                        <i class="bi bi-stop-circle"></i> Остановить сканер
+                    </button>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label for="category_id" class="form-label">Категория</label>
+                <select class="form-select" id="category_id" name="category_id">
+                    <option value="">— Без категории —</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat.id }}" {% if material and material.category_id == cat.id %}selected{% endif %}>
+                        {{ cat.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="mb-3">
+                <label for="min_stock" class="form-label">Минимальный остаток</label>
+                <input type="number" class="form-control" id="min_stock" name="min_stock"
+                       value="{{ material.min_stock if material else '0' }}" min="0">
+            </div>
+            <div class="mb-3">
+                <label for="note" class="form-label">Примечание</label>
+                <textarea class="form-control" id="note" name="note" rows="2">{{ material.note if material else '' }}</textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-circle"></i> {{ 'Сохранить' if material else 'Добавить' }}
+            </button>
+            <a href="/materials" class="btn btn-secondary">Отмена</a>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let barcodeScanner = null;
+const scanBtn = document.getElementById('scanBarcodeBtn');
+const stopBtn = document.getElementById('stopBarcodeScannerBtn');
+const scannerContainer = document.getElementById('barcodeScannerContainer');
+const barcodeInput = document.getElementById('barcode');
+
+scanBtn.addEventListener('click', function() {
+    scannerContainer.style.display = 'block';
+    scanBtn.disabled = true;
+
+    barcodeScanner = new Html5Qrcode("barcodeMiniScanner");
+
+    barcodeScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 100 } },
+        (decodedText) => {
+            barcodeInput.value = decodedText;
+            flashBorder('green');
+            stopBarcodeScanner();
+        },
+        () => {}
+    ).catch(err => {
+        alert('Ошибка доступа к камере: ' + err.message);
+        scannerContainer.style.display = 'none';
+        scanBtn.disabled = false;
+    });
+});
+
+stopBtn.addEventListener('click', function() {
+    stopBarcodeScanner();
+});
+
+function stopBarcodeScanner() {
+    if (barcodeScanner) {
+        barcodeScanner.stop().then(() => {
+            scannerContainer.style.display = 'none';
+            scanBtn.disabled = false;
+            barcodeScanner = null;
+        }).catch(() => {
+            scannerContainer.style.display = 'none';
+            scanBtn.disabled = false;
+            barcodeScanner = null;
+        });
+    }
+}
+
+function flashBorder(color) {
+    scannerContainer.style.borderColor = color;
+    setTimeout(() => { scannerContainer.style.borderColor = '#ccc'; }, 1000);
+}
+</script>
+{% endblock %}

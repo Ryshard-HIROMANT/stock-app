@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Сканер штрихкодов — Склад{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-camera"></i> Сканер штрихкодов</h5>
+            </div>
+            <div class="card-body text-center">
+                <div id="reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>
+                <div id="result" class="mt-3 d-none">
+                    <h5>Найден материал:</h5>
+                    <div id="result-content"></div>
+                </div>
+                <div id="not-found" class="mt-3 d-none">
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i> Материал с таким штрихкодом не найден.
+                        <br><small>Штрихкод: <code id="scanned-code"></code></small>
+                    </div>
+                    <a href="/materials/add" class="btn btn-success">
+                        <i class="bi bi-plus-circle"></i> Добавить новый материал
+                    </a>
+                </div>
+                <div id="error-message" class="mt-3 d-none">
+                    <div class="alert alert-danger">
+                        <i class="bi bi-camera-video-off"></i> Ошибка доступа к камере. Разрешите использование камеры в браузере.
+                    </div>
+                </div>
+                <a href="/" class="btn btn-secondary mt-3">
+                    <i class="bi bi-arrow-left"></i> Назад
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let html5QrCode;
+
+function startScanner() {
+    html5QrCode = new Html5Qrcode("reader");
+    
+    html5QrCode.start(
+        { facingMode: "environment" },
+        {
+            fps: 10,
+            qrbox: { width: 250, height: 100 }
+        },
+        onScanSuccess,
+        onScanError
+    ).catch(err => {
+        document.getElementById('error-message').classList.remove('d-none');
+        console.error("Ошибка камеры:", err);
+    });
+}
+
+function onScanSuccess(decodedText, decodedResult) {
+    html5QrCode.stop().then(() => {
+        fetch(`/api/material-by-barcode?barcode=${encodeURIComponent(decodedText)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.found) {
+                    document.getElementById('result').classList.remove('d-none');
+                    document.getElementById('result-content').innerHTML = `
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <h4>${data.material.name}</h4>
+                                <p><strong>Размер:</strong> ${data.material.size || '—'}</p>
+                                <p><strong>Штрихкод:</strong> <code>${data.material.barcode}</code></p>
+                                <p><strong>Всего в наличии:</strong> <span class="badge bg-success fs-6">${data.total_remaining} шт.</span></p>
+                                ${data.batches_html || ''}
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <a href="/operations/in?material_id=${data.material.id}" class="btn btn-success">
+                                <i class="bi bi-box-arrow-in-down"></i> Приход
+                            </a>
+                            <a href="/operations/out?material_id=${data.material.id}" class="btn btn-danger">
+                                <i class="bi bi-box-arrow-up"></i> Расход
+                            </a>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('not-found').classList.remove('d-none');
+                    document.getElementById('scanned-code').textContent = decodedText;
+                }
+            });
+    }).catch(err => console.error("Ошибка остановки:", err));
+}
+
+function onScanError(errorMessage) {
+    // игнорируем
+}
+
+document.addEventListener('DOMContentLoaded', startScanner);
+</script>
+{% endblock %}

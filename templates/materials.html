@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Материалы — Склад МедМатериалов{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1><i class="bi bi-box"></i> Справочник материалов</h1>
+    {% if current_user.is_storekeeper() %}
+    <a href="/materials/add" class="btn btn-success">
+        <i class="bi bi-plus-circle"></i> Добавить материал
+    </a>
+    {% endif %}
+</div>
+
+<form method="GET" action="/materials" class="mb-3">
+    <div class="row g-2">
+        <div class="col-md-6">
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" name="search" class="form-control" id="searchInput"
+                       placeholder="Поиск по названию, размеру, штрихкоду или отсканируйте..."
+                       value="{{ search }}">
+                <button type="button" class="btn btn-outline-primary" id="scanSearchBtn" title="Сканировать штрихкод">
+                    <i class="bi bi-camera"></i>
+                </button>
+                <button type="submit" class="btn btn-primary">Найти</button>
+                {% if search or selected_category %}
+                <a href="/materials" class="btn btn-outline-secondary">Сбросить</a>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-md-3">
+            <select name="category_id" class="form-select" onchange="this.form.submit()">
+                <option value="">Все категории</option>
+                {% for cat in categories %}
+                <option value="{{ cat.id }}" {% if selected_category == cat.id|string %}selected{% endif %}>
+                    {{ cat.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    <!-- Мини-сканер -->
+    <div id="searchScannerContainer" style="display:none; margin-top: 10px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
+        <div id="searchMiniScanner" style="width: 100%; max-width: 300px; margin: 0 auto;"></div>
+        <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopSearchScannerBtn">
+            <i class="bi bi-stop-circle"></i> Остановить сканер
+        </button>
+    </div>
+</form>
+
+<div class="card">
+    <div class="card-body table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>ID</th>
+                    <th>Название</th>
+                    <th>Размер</th>
+                    <th>Штрихкод</th>
+                    <th>Категория</th>
+                    <th>Мин. остаток</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in materials %}
+                <tr>
+                    <td>{{ m.id }}</td>
+                    <td><strong>{{ m.name }}</strong></td>
+                    <td>{{ m.size or '—' }}</td>
+                    <td><code>{{ m.barcode or '—' }}</code></td>
+                    <td>{{ m.category_name or '—' }}</td>
+                    <td>{{ m.min_stock }}</td>
+                    <td>
+                        {% if current_user.is_storekeeper() %}
+                        <a href="/materials/{{ m.id }}/edit" class="btn btn-sm btn-warning" title="Редактировать">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                        {% endif %}
+                        {% if current_user.is_admin() %}
+                        <form method="POST" action="/materials/{{ m.id }}/delete" style="display:inline;"
+                              onsubmit="return confirm('Удалить материал «{{ m.name }}»? Это также удалит все связанные партии и операции!')">
+                            <button type="submit" class="btn btn-sm btn-danger" title="Удалить">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center text-muted">Материалы не найдены</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ──────────────────────────────────────────
+// СКАНЕР В ПОИСКОВОЙ СТРОКЕ
+// ──────────────────────────────────────────
+let searchScanner = null;
+const scanSearchBtn = document.getElementById('scanSearchBtn');
+const stopSearchBtn = document.getElementById('stopSearchScannerBtn');
+const scannerContainer = document.getElementById('searchScannerContainer');
+const searchInput = document.getElementById('searchInput');
+
+scanSearchBtn.addEventListener('click', function() {
+    scannerContainer.style.display = 'block';
+    scanSearchBtn.disabled = true;
+
+    searchScanner = new Html5Qrcode("searchMiniScanner");
+
+    searchScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 100 } },
+        (decodedText) => {
+            flashBorder('green');
+            stopSearchScanner();
+            searchInput.value = decodedText;
+            searchInput.closest('form').submit();
+        },
+        () => {}
+    ).catch(err => {
+        alert('Ошибка доступа к камере: ' + err.message);
+        scannerContainer.style.display = 'none';
+        scanSearchBtn.disabled = false;
+    });
+});
+
+stopSearchBtn.addEventListener('click', function() {
+    stopSearchScanner();
+});
+
+function stopSearchScanner() {
+    if (searchScanner) {
+        searchScanner.stop().then(() => {
+            scannerContainer.style.display = 'none';
+            scanSearchBtn.disabled = false;
+            searchScanner = null;
+        }).catch(() => {
+            scannerContainer.style.display = 'none';
+            scanSearchBtn.disabled = false;
+            searchScanner = null;
+        });
+    }
+}
+
+function flashBorder(color) {
+    scannerContainer.style.borderColor = color;
+    setTimeout(() => {
+        scannerContainer.style.borderColor = '#ccc';
+    }, 1000);
+}
+</script>
+{% endblock %}

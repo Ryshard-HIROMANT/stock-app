@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Редактировать' if location else 'Добавить' }} локацию — Склад{% endblock %}
+
+{% block content %}
+<h1>
+    {% if location %}
+        <i class="bi bi-pencil"></i> Редактировать: {{ location.code }}
+    {% else %}
+        <i class="bi bi-plus-circle"></i> Добавить локацию
+    {% endif %}
+</h1>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST">
+            <div class="mb-3">
+                <label for="code" class="form-label">Код локации *</label>
+                <input type="text" class="form-control" id="code" name="code"
+                       value="{{ location.code if location else '' }}" required>
+            </div>
+            <div class="mb-3">
+                <label for="description" class="form-label">Описание</label>
+                <input type="text" class="form-control" id="description" name="description"
+                       value="{{ location.description if location else '' }}">
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-circle"></i> {{ 'Сохранить' if location else 'Добавить' }}
+            </button>
+            <a href="/locations" class="btn btn-secondary">Отмена</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

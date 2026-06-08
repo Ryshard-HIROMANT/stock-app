@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Редактировать' if category else 'Добавить' }} категорию — Склад{% endblock %}
+
+{% block content %}
+<h1>
+    {% if category %}
+        <i class="bi bi-pencil"></i> Редактировать: {{ category.name }}
+    {% else %}
+        <i class="bi bi-plus-circle"></i> Добавить категорию
+    {% endif %}
+</h1>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST">
+            <div class="mb-3">
+                <label for="name" class="form-label">Название *</label>
+                <input type="text" class="form-control" id="name" name="name"
+                       value="{{ category.name if category else '' }}" required>
+            </div>
+            <div class="mb-3">
+                <label for="description" class="form-label">Описание</label>
+                <input type="text" class="form-control" id="description" name="description"
+                       value="{{ category.description if category else '' }}">
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-circle"></i> {{ 'Сохранить' if category else 'Добавить' }}
+            </button>
+            <a href="/categories" class="btn btn-secondary">Отмена</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

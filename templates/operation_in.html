@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title %}Приход — Склад МедМатериалов{% endblock %}
+
+{% block content %}
+<h1 class="mb-4"><i class="bi bi-box-arrow-in-down"></i> Приход материалов</h1>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST">
+            <h5 class="mb-3"><i class="bi bi-plus-circle"></i> Новый приход</h5>
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label for="material_id" class="form-label">Материал</label>
+                    <input type="text" class="form-control" id="material_search"
+                           placeholder="Поиск существующего материала..."
+                           autocomplete="off"
+                           value="{{ selected_material.name if selected_material else '' }}">
+                    <select class="form-select mt-1" id="material_id" name="material_id" size="5"
+                            style="display:none;">
+                        <option value="new">+ Создать новый материал</option>
+                        {% for m in materials %}
+                        <option value="{{ m.id }}" data-name="{{ m.name }}" data-size="{{ m.size or '' }}"
+                                {% if selected_material and selected_material.id == m.id %}selected{% endif %}>
+                            {{ m.name }} {{ m.size or '' }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="new_material_name" class="form-label">Название нового материала</label>
+                    <input type="text" class="form-control" id="new_material_name" name="new_material_name"
+                           placeholder="Введите название">
+                </div>
+                <div class="col-md-2">
+                    <label for="new_material_size" class="form-label">Размер</label>
+                    <input type="text" class="form-control" id="new_material_size" name="new_material_size"
+                           placeholder="5F, 6F...">
+                </div>
+                <div class="col-md-2">
+                    <label for="new_material_barcode" class="form-label">Штрихкод</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="new_material_barcode" name="new_material_barcode"
+                               placeholder="Код">
+                        <button type="button" class="btn btn-outline-primary" id="scanBarcodeBtn" title="Сканировать">
+                            <i class="bi bi-camera"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- Мини-сканер -->
+            <div id="scannerContainer" style="display:none; margin-bottom: 15px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
+                <div id="miniScanner" style="width: 100%; max-width: 300px; margin: 0 auto;"></div>
+                <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopScannerBtn">
+                    <i class="bi bi-stop-circle"></i> Остановить сканер
+                </button>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label for="new_material_category_id" class="form-label">Категория</label>
+                    <select class="form-select" id="new_material_category_id" name="new_material_category_id">
+                        <option value="">— Без категории —</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="expiry_date" class="form-label">Срок годности</label>
+                    <input type="date" class="form-control" id="expiry_date" name="expiry_date">
+                </div>
+                <div class="col-md-3">
+                    <label for="batch_number" class="form-label">Номер партии</label>
+                    <input type="text" class="form-control" id="batch_number" name="batch_number"
+                           placeholder="Номер партии производителя">
+                </div>
+                <div class="col-md-3">
+                    <label for="location_code" class="form-label">Локация</label>
+                    <select class="form-select" id="location_code" name="location_code">
+                        <option value="">— Выберите локацию —</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.code }}">{{ loc.code }} — {{ loc.description or '' }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label for="quantity" class="form-label">Количество *</label>
+                    <input type="number" class="form-control" id="quantity" name="quantity"
+                           min="1" value="1" required>
+                </div>
+                <div class="col-md-6">
+                    <label for="note" class="form-label">Примечание</label>
+                    <input type="text" class="form-control" id="note" name="note"
+                           placeholder="Например: поступление со склада №2">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-success btn-lg">
+                <i class="bi bi-check-circle"></i> Оформить приход
+            </button>
+            <a href="/" class="btn btn-secondary btn-lg">Отмена</a>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Поиск по материалам
+const searchInput = document.getElementById('material_search');
+const selectEl = document.getElementById('material_id');
+const options = Array.from(selectEl.options);
+const newNameInput = document.getElementById('new_material_name');
+const newSizeInput = document.getElementById('new_material_size');
+const newBarcodeInput = document.getElementById('new_material_barcode');
+
+searchInput.addEventListener('input', function() {
+    const query = this.value.toLowerCase();
+    selectEl.style.display = 'block';
+    selectEl.size = 5;
+    for (let i = 0; i < options.length; i++) {
+        const text = options[i].textContent.toLowerCase();
+        options[i].style.display = text.includes(query) ? '' : 'none';
+        if (text.includes(query) && options[i].value && options[i].value !== 'new') {
+            options[i].selected = true;
+        }
+    }
+});
+
+searchInput.addEventListener('focus', function() {
+    selectEl.style.display = 'block';
+    this.dispatchEvent(new Event('input'));
+});
+
+selectEl.addEventListener('change', function() {
+    const selected = this.options[this.selectedIndex];
+    if (selected.value === 'new') {
+        searchInput.value = '';
+        newNameInput.focus();
+    } else if (selected.value) {
+        searchInput.value = selected.getAttribute('data-name') + ' ' + selected.getAttribute('data-size');
+        newNameInput.value = '';
+        newSizeInput.value = '';
+        newBarcodeInput.value = '';
+    }
+    this.style.display = 'none';
+});
+
+document.addEventListener('click', function(e) {
+    if (e.target !== searchInput && e.target !== selectEl) {
+        selectEl.style.display = 'none';
+    }
+});
+
+// Мини-сканер
+let miniScanner = null;
+const scanBtn = document.getElementById('scanBarcodeBtn');
+const stopBtn = document.getElementById('stopScannerBtn');
+const scannerContainer = document.getElementById('scannerContainer');
+const barcodeInput = document.getElementById('new_material_barcode');
+
+scanBtn.addEventListener('click', function() {
+    scannerContainer.style.display = 'block';
+    scanBtn.disabled = true;
+    miniScanner = new Html5Qrcode("miniScanner");
+    miniScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 100 } },
+        (decodedText) => {
+            barcodeInput.value = decodedText;
+            flashBorder('green');
+            stopMiniScanner();
+        },
+        () => {}
+    ).catch(err => {
+        alert('Ошибка доступа к камере: ' + err.message);
+        scannerContainer.style.display = 'none';
+        scanBtn.disabled = false;
+    });
+});
+
+stopBtn.addEventListener('click', function() { stopMiniScanner(); });
+
+function stopMiniScanner() {
+    if (miniScanner) {
+        miniScanner.stop().then(() => {
+            scannerContainer.style.display = 'none';
+            scanBtn.disabled = false;
+            miniScanner = null;
+        }).catch(() => {
+            scannerContainer.style.display = 'none';
+            scanBtn.disabled = false;
+            miniScanner = null;
+        });
+    }
+}
+
+function flashBorder(color) {
+    scannerContainer.style.borderColor = color;
+    setTimeout(() => { scannerContainer.style.borderColor = '#ccc'; }, 1000);
+}
+</script>
+{% endblock %}

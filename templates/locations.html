@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Локации — Склад МедМатериалов{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1><i class="bi bi-geo-alt"></i> Места хранения (локации)</h1>
+    {% if current_user.is_storekeeper() %}
+    <a href="/locations/add" class="btn btn-success">
+        <i class="bi bi-plus-circle"></i> Добавить локацию
+    </a>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-body table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>Код</th>
+                    <th>Описание</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for loc in locations %}
+                <tr>
+                    <td><span class="badge bg-secondary fs-6">{{ loc.code }}</span></td>
+                    <td>{{ loc.description or '—' }}</td>
+                    <td>
+                        {% if current_user.is_storekeeper() %}
+                        <a href="/locations/{{ loc.id }}/edit" class="btn btn-sm btn-warning" title="Редактировать">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                        {% endif %}
+                        {% if current_user.is_admin() %}
+                        <form method="POST" action="/locations/{{ loc.id }}/delete" style="display:inline;"
+                              onsubmit="return confirm('Удалить локацию «{{ loc.code }}»?')">
+                            <button type="submit" class="btn btn-sm btn-danger" title="Удалить">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" class="text-center text-muted">Локации не найдены</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
