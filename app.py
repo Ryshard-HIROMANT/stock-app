@@ -24,6 +24,70 @@ def create_app():
     # ──────────────────────────────────────────
     # АВТОРИЗАЦИЯ
     # ──────────────────────────────────────────
+        # ──────────────────────────────────────────
+    # ВРЕМЕННЫЙ МАРШРУТ ДЛЯ ИНИЦИАЛИЗАЦИИ БД
+    # ──────────────────────────────────────────
+    @app.route('/init-db')
+    def init_db_route():
+        from models import db, User, Location, Material, Batch, Category
+        from datetime import date
+        
+        db.drop_all()
+        db.create_all()
+
+        admin = User(username='admin', full_name='Администратор', role='admin')
+        admin.set_password('admin123')
+        storekeeper = User(username='ivanov', full_name='Иванов И.И.', role='storekeeper')
+        storekeeper.set_password('store123')
+        viewer = User(username='petrov', full_name='Петров П.П.', role='viewer')
+        viewer.set_password('view123')
+        db.session.add_all([admin, storekeeper, viewer])
+
+        categories_data = [
+            ('Баллоны коронарные', ''),
+            ('Проводники', ''),
+            ('Катетеры диагностические', ''),
+            ('Наборы ангиографические', ''),
+            ('Прочее', ''),
+        ]
+        categories = {}
+        for name, desc in categories_data:
+            cat = Category(name=name, description=desc)
+            db.session.add(cat)
+            categories[name] = cat
+        db.session.flush()
+
+        locations = {}
+        for code, desc in [
+            ('110', 'Основной склад'), ('340', 'Склад №2'), ('0', 'Основная ячейка'),
+            ('10', 'Ячейка 10'), ('15', 'Ячейка 15'), ('30', 'Ячейка 30'),
+            ('105', 'Ячейка 105'), ('610', 'Ячейка 610'),
+        ]:
+            loc = Location(code=code, description=desc)
+            db.session.add(loc)
+            locations[code] = loc
+        db.session.flush()
+
+        materials_data = [
+            ('TIG 2', '5F', '2027-01-01', 100, 91, '110', 'Катетеры диагностические'),
+            ('Merit Ultimate 1', '5F', '2028-03-01', 180, 164, '340', 'Катетеры диагностические'),
+            ('JR 4 130', '5F', '2028-05-01', 30, 15, None, 'Катетеры диагностические'),
+            ('CBR', '5F', '2028-05-01', 10, 1, '0', 'Баллоны коронарные'),
+            ('Набор ангиографический Veismed', '6F', '2028-12-01', 30, 28, '105', 'Наборы ангиографические'),
+        ]
+
+        for name, size, expiry_str, qty, used, loc_code, cat_name in materials_data:
+            category = categories.get(cat_name)
+            material = Material(name=name, size=size, category_id=category.id if category else None)
+            db.session.add(material)
+            db.session.flush()
+            expiry_date = date.fromisoformat(expiry_str)
+            location_id = locations[loc_code].id if loc_code else None
+            batch = Batch(material_id=material.id, location_id=location_id, expiry_date=expiry_date, quantity=qty, used=used)
+            db.session.add(batch)
+
+        db.session.commit()
+        return 'База данных создана! <a href="/">Войти</a>'
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         if current_user.is_authenticated:
