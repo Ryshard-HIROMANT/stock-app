@@ -1,3 +1,4 @@
+import os
 from flask import Flask, render_template, redirect, url_for, flash, request
 from config import Config
 from models import db, User, Material, Batch, Location, Transaction, Category
@@ -617,4 +618,5 @@ def create_app():
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True, host='0.0.0.0', port=5050)
+    port = int(os.environ.get('PORT', 5050))
+    app.run(debug=False, host='0.0.0.0', port=port)
