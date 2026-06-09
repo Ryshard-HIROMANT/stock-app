@@ -23,7 +23,7 @@ class Category(db.Model):
 
 
 # ──────────────────────────────────────────────
-# 1. ПОЛЬЗОВАТЕЛИ И РОЛИ
+# ПОЛЬЗОВАТЕЛИ И РОЛИ
 # ──────────────────────────────────────────────
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
@@ -32,11 +32,15 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     full_name = db.Column(db.String(200))
-    role = db.Column(db.String(20), nullable=False, default='viewer')
+    role = db.Column(db.String(30), nullable=False, default='viewer')
+    # roles: admin, head, head_nurse, doctor_storekeeper, doctor, xray_lab
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     transactions = db.relationship('Transaction', backref='user', lazy=True)
+    created_requests = db.relationship('TransferRequest', foreign_keys='TransferRequest.from_user_id', backref='from_user', lazy=True)
+    processed_requests = db.relationship('TransferRequest', foreign_keys='TransferRequest.to_user_id', backref='to_user', lazy=True)
+    confirmations = db.relationship('SpendingConfirmation', backref='doctor', lazy=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -47,15 +51,45 @@ class User(UserMixin, db.Model):
     def is_admin(self):
         return self.role == 'admin'
 
+    def is_head(self):
+        return self.role in ('admin', 'head')
+
+    def is_head_nurse(self):
+        return self.role in ('admin', 'head_nurse')
+
+    def is_doctor_storekeeper(self):
+        return self.role in ('admin', 'doctor_storekeeper')
+
     def is_storekeeper(self):
-        return self.role in ('admin', 'storekeeper')
+        return self.role in ('admin', 'head_nurse', 'doctor_storekeeper')
+
+    def is_doctor(self):
+        return self.role in ('admin', 'head', 'doctor_storekeeper', 'doctor')
+
+    def can_confirm(self):
+        return self.role in ('admin', 'head', 'doctor_storekeeper', 'doctor')
+
+    def can_create_draft(self):
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper', 'doctor', 'xray_lab')
+
+    def can_create_request(self):
+        return self.role in ('admin', 'head_nurse', 'doctor_storekeeper', 'xray_lab')
+
+    def can_process_requests(self):
+        return self.role in ('admin', 'head_nurse', 'doctor_storekeeper')
+
+    def can_revision(self):
+        return self.role in ('admin', 'head_nurse')
+
+    def can_reports(self):
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
 
     def __repr__(self):
         return f'<User {self.username} ({self.role})>'
 
 
 # ──────────────────────────────────────────────
-# 2. МЕСТА ХРАНЕНИЯ (подвал / ячейки)
+# МЕСТА ХРАНЕНИЯ (локации)
 # ──────────────────────────────────────────────
 class Location(db.Model):
     __tablename__ = 'locations'
@@ -71,7 +105,7 @@ class Location(db.Model):
 
 
 # ──────────────────────────────────────────────
-# 3. СПРАВОЧНИК МАТЕРИАЛОВ
+# МАТЕРИАЛЫ
 # ──────────────────────────────────────────────
 class Material(db.Model):
     __tablename__ = 'materials'
@@ -82,6 +116,7 @@ class Material(db.Model):
     barcode = db.Column(db.String(100), unique=True)
     min_stock = db.Column(db.Integer, default=0)
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'))
+    is_reusable = db.Column(db.Boolean, default=False)  # Повторное использование
     note = db.Column(db.Text)
 
     batches = db.relationship('Batch', backref='material', lazy=True)
@@ -95,7 +130,7 @@ class Material(db.Model):
 
 
 # ──────────────────────────────────────────────
-# 4. ПАРТИИ (самое важное!)
+# ПАРТИИ
 # ──────────────────────────────────────────────
 class Batch(db.Model):
     __tablename__ = 'batches'
@@ -134,7 +169,7 @@ class Batch(db.Model):
 
 
 # ──────────────────────────────────────────────
-# 5. ЖУРНАЛ ОПЕРАЦИЙ (история всех движений)
+# ЖУРНАЛ ОПЕРАЦИЙ (транзакции)
 # ──────────────────────────────────────────────
 class Transaction(db.Model):
     __tablename__ = 'transactions'
@@ -142,10 +177,120 @@ class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     batch_id = db.Column(db.Integer, db.ForeignKey('batches.id'), nullable=False)
-    type = db.Column(db.String(10), nullable=False)
+    type = db.Column(db.String(20), nullable=False)  # in, out, move_in, move_out, revision, reusable_in, reusable_out
     quantity = db.Column(db.Integer, nullable=False)
     note = db.Column(db.Text)
+    operation_id = db.Column(db.String(50))  # ID операции (для привязки списания)
+    doctor_name = db.Column(db.String(200))  # ФИО врача
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):
         return f'<Transaction {self.type} {self.quantity} by {self.user.username}>'
+
+
+# ──────────────────────────────────────────────
+# ПЕРЕМЕЩЕНИЯ МЕЖДУ СКЛАДАМИ
+# ──────────────────────────────────────────────
+class Transfer(db.Model):
+    __tablename__ = 'transfers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    from_location_id = db.Column(db.Integer, db.ForeignKey('locations.id'))
+    to_location_id = db.Column(db.Integer, db.ForeignKey('locations.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    from_location = db.relationship('Location', foreign_keys=[from_location_id])
+    to_location = db.relationship('Location', foreign_keys=[to_location_id])
+    user = db.relationship('User', foreign_keys=[user_id])
+    items = db.relationship('TransferItem', backref='transfer', lazy=True)
+
+    def __repr__(self):
+        return f'<Transfer #{self.id} {self.from_location.code} -> {self.to_location.code}>'
+
+
+class TransferItem(db.Model):
+    __tablename__ = 'transfer_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    transfer_id = db.Column(db.Integer, db.ForeignKey('transfers.id'), nullable=False)
+    batch_id = db.Column(db.Integer, db.ForeignKey('batches.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+
+    batch = db.relationship('Batch')
+
+    def __repr__(self):
+        return f'<TransferItem {self.quantity} of batch #{self.batch_id}>'
+
+
+# ──────────────────────────────────────────────
+# ЗАЯВКИ НА ПЕРЕМЕЩЕНИЕ
+# ──────────────────────────────────────────────
+class TransferRequest(db.Model):
+    __tablename__ = 'transfer_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    from_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    to_user_id = db.Column(db.Integer, db.ForeignKey('users.id'))  # Кто обработал
+    material_id = db.Column(db.Integer, db.ForeignKey('materials.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    from_location_code = db.Column(db.String(50))  # Откуда (обычно материальная)
+    to_location_code = db.Column(db.String(50), default='oper')  # Куда (операционная)
+    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected, completed
+    note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime)
+
+    material = db.relationship('Material')
+
+    def __repr__(self):
+        return f'<TransferRequest #{self.id} {self.material.name} x{self.quantity}>'
+
+
+# ──────────────────────────────────────────────
+# ПОДТВЕРЖДЕНИЕ СПИСАНИЯ
+# ──────────────────────────────────────────────
+class SpendingDraft(db.Model):
+    __tablename__ = 'spending_drafts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # Кто создал
+    material_id = db.Column(db.Integer, db.ForeignKey('materials.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    operation_id = db.Column(db.String(50))  # ID операции
+    doctor_name = db.Column(db.String(200))  # ФИО врача
+    status = db.Column(db.String(20), default='pending')  # pending, confirmed, rejected
+    confirmed_by = db.Column(db.Integer, db.ForeignKey('users.id'))  # Кто подтвердил
+    note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    confirmed_at = db.Column(db.DateTime)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+    material = db.relationship('Material')
+
+    def __repr__(self):
+        return f'<SpendingDraft #{self.id} {self.material.name} x{self.quantity} [{self.status}]>'
+
+
+# ──────────────────────────────────────────────
+# РЕВИЗИЯ
+# ──────────────────────────────────────────────
+class Revision(db.Model):
+    __tablename__ = 'revisions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    batch_id = db.Column(db.Integer, db.ForeignKey('batches.id'), nullable=False)
+    old_quantity = db.Column(db.Integer)
+    new_quantity = db.Column(db.Integer)
+    old_used = db.Column(db.Integer)
+    new_used = db.Column(db.Integer)
+    note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User')
+    batch = db.relationship('Batch')
+
+    def __repr__(self):
+        return f'<Revision batch #{self.batch_id} qty {self.old_quantity}->{self.new_quantity}>'
