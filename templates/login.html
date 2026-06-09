@@ -3,7 +3,87 @@
 {% block title %}Вход — Склад МедМатериалов{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
+<style>
+    /* Контейнер заставки */
+    .splash-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        transition: opacity 0.8s ease, visibility 0.8s ease;
+    }
+    .splash-container.hidden {
+        opacity: 0;
+        visibility: hidden;
+    }
+    .splash-logo {
+        width: 120px;
+        height: 120px;
+        background: white;
+        border-radius: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 30px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        animation: logoPopIn 0.8s ease-out 0.5s both;
+    }
+    .splash-logo img {
+        max-width: 80%;
+        max-height: 80%;
+    }
+    .splash-text {
+        color: white;
+        font-size: 1.5rem;
+        text-align: center;
+        opacity: 0;
+        animation: fadeInUp 0.8s ease-out 0.3s forwards;
+    }
+    .splash-subtext {
+        color: rgba(255,255,255,0.8);
+        font-size: 1rem;
+        margin-top: 10px;
+        opacity: 0;
+        animation: fadeInUp 0.8s ease-out 0.7s forwards;
+    }
+    @keyframes logoPopIn {
+        0% { transform: scale(0); opacity: 0; }
+        70% { transform: scale(1.1); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes fadeInUp {
+        0% { opacity: 0; transform: translateY(20px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+    /* Форма входа изначально скрыта */
+    .login-form-wrapper {
+        opacity: 0;
+        transition: opacity 0.8s ease 0.5s;
+    }
+    .login-form-wrapper.visible {
+        opacity: 1;
+    }
+</style>
+
+<!-- Заставка -->
+<div id="splash" class="splash-container">
+    <div class="splash-text">Приветствуем!</div>
+    <div class="splash-subtext">Спасибо, что выбрали нас</div>
+    <div class="splash-logo">
+        <!-- Замени src на свой логотип, когда будет готов -->
+        <i class="bi bi-heart-pulse" style="font-size: 3rem; color: #0d6efd;"></i>
+    </div>
+</div>
+
+<!-- Форма входа -->
+<div class="row justify-content-center" id="loginFormWrapper" style="display: none;">
     <div class="col-md-4">
         <div class="card shadow">
             <div class="card-header bg-primary text-white text-center">
@@ -33,10 +113,24 @@
                 </form>
             </div>
             <div class="card-footer text-muted text-center small">
-                Тестовые пользователи:
-                admin/admin123 • ivanov/store123 • petrov/view123
+                Разработано медицинским отделением
             </div>
         </div>
     </div>
 </div>
+
+<script>
+    // После загрузки страницы через 2.5 секунды скрываем заставку и показываем форму
+    window.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            document.getElementById('splash').classList.add('hidden');
+            var formWrapper = document.getElementById('loginFormWrapper');
+            formWrapper.style.display = 'block';
+            // Небольшая задержка, чтобы сработал transition
+            setTimeout(function() {
+                formWrapper.querySelector('.row').classList.add('visible');
+            }, 50);
+        }, 2500);
+    });
+</script>
 {% endblock %}
