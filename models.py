@@ -40,7 +40,7 @@ class User(UserMixin, db.Model):
     transactions = db.relationship('Transaction', backref='user', lazy=True)
     created_requests = db.relationship('TransferRequest', foreign_keys='TransferRequest.from_user_id', backref='from_user', lazy=True)
     processed_requests = db.relationship('TransferRequest', foreign_keys='TransferRequest.to_user_id', backref='to_user', lazy=True)
-    confirmations = db.relationship('SpendingConfirmation', backref='doctor', lazy=True)
+        confirmations = db.relationship('SpendingDraft', foreign_keys='SpendingDraft.confirmed_by', backref='doctor', lazy=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
