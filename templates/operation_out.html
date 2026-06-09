@@ -11,7 +11,7 @@
             <div class="row mb-3">
                 <div class="col-md-4">
                     <label for="category_filter" class="form-label">Категория</label>
-                    <select class="form-select" id="category_filter" name="category_filter">
+                    <select class="form-select" id="category_filter">
                         <option value="">— Все категории —</option>
                         {% for cat in categories %}
                         <option value="{{ cat.id }}">{{ cat.name }}</option>
@@ -24,9 +24,9 @@
                         <select class="form-select" id="material_id" name="material_id" required>
                             <option value="">— Выберите материал —</option>
                             {% for m in materials %}
-                            <option value="{{ m.id }}" data-category="{{ m.category_id or '' }}"
-                                    {% if selected_material and selected_material.id == m.id %}selected{% endif %}>
-                                {{ m.name }} {{ m.size or '' }} ({{ m.category_name or '—' }})
+                            <option value="{{ m.id }}" data-category="{{ m.category_id or '' }}">
+                                {{ m.name }} {{ m.size or '' }}
+                                {% if m.is_reusable %}[Повт.]{% endif %}
                             </option>
                             {% endfor %}
                         </select>
@@ -37,35 +37,55 @@
                 </div>
                 <div class="col-md-3">
                     <label for="quantity" class="form-label">Количество *</label>
-                    <input type="number" class="form-control" id="quantity" name="quantity"
-                           min="1" value="1" required>
+                    <input type="number" class="form-control" id="quantity" name="quantity" min="1" value="1" required>
                 </div>
             </div>
             <!-- Сканер -->
             <div id="outScannerContainer" style="display:none; margin-bottom: 15px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
                 <div id="outMiniScanner" style="width: 100%; max-width: 300px; margin: 0 auto;"></div>
                 <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopOutScannerBtn">
-                    <i class="bi bi-stop-circle"></i> Остановить сканер
+                    <i class="bi bi-stop-circle"></i> Остановить
                 </button>
             </div>
             <div class="row mb-3">
-                <div class="col-md-6">
+                <div class="col-md-4">
+                    <label for="operation_id" class="form-label">ID операции</label>
+                    <input type="text" class="form-control" id="operation_id" name="operation_id"
+                           placeholder="Номер или код операции">
+                </div>
+                <div class="col-md-4">
+                    <label for="doctor_name" class="form-label">ФИО врача</label>
+                    <input type="text" class="form-control" id="doctor_name" name="doctor_name"
+                           placeholder="Врач-оператор">
+                </div>
+                <div class="col-md-4">
                     <label for="note" class="form-label">Примечание</label>
                     <input type="text" class="form-control" id="note" name="note"
                            placeholder="Кому / куда выдано">
                 </div>
             </div>
             <button type="submit" class="btn btn-danger btn-lg">
-                <i class="bi bi-check-circle"></i> Оформить расход
+                <i class="bi bi-check-circle"></i>
+                {% if current_user.role in ('admin', 'head', 'doctor_storekeeper', 'doctor') %}
+                    Оформить расход
+                {% else %}
+                    Создать черновик списания
+                {% endif %}
             </button>
             <a href="/" class="btn btn-secondary btn-lg">Отмена</a>
         </form>
     </div>
 </div>
 
+{% if current_user.role in ('admin', 'head', 'doctor_storekeeper', 'doctor') %}
 <div class="alert alert-info mt-3">
     <i class="bi bi-info-circle"></i> <strong>FIFO:</strong> расход списывается из партий с ближайшим сроком годности автоматически.
 </div>
+{% else %}
+<div class="alert alert-warning mt-3">
+    <i class="bi bi-exclamation-triangle"></i> Вы создаёте <strong>черновик</strong> списания. Врач должен подтвердить его.
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -74,11 +94,9 @@ const categoryFilter = document.getElementById('category_filter');
 const materialSelect = document.getElementById('material_id');
 const allOptions = Array.from(materialSelect.options);
 
-// Фильтр материалов по категории
 categoryFilter.addEventListener('change', function() {
     const selectedCategory = this.value;
     materialSelect.innerHTML = '<option value="">— Выберите материал —</option>';
-    
     allOptions.forEach(opt => {
         if (opt.value === '') return;
         const cat = opt.getAttribute('data-category');
@@ -86,16 +104,9 @@ categoryFilter.addEventListener('change', function() {
             materialSelect.appendChild(opt.cloneNode(true));
         }
     });
-    
-    // Если был выбран материал не из этой категории — сбрасываем
-    if (materialSelect.value === '') {
-        materialSelect.selectedIndex = 0;
-    }
 });
 
-// ──────────────────────────────────────────
-// СКАНЕР ДЛЯ ПОИСКА МАТЕРИАЛА
-// ──────────────────────────────────────────
+// Сканер
 let outScanner = null;
 const scanOutBtn = document.getElementById('scanOutBtn');
 const stopOutBtn = document.getElementById('stopOutScannerBtn');
@@ -104,27 +115,23 @@ const outScannerContainer = document.getElementById('outScannerContainer');
 scanOutBtn.addEventListener('click', function() {
     outScannerContainer.style.display = 'block';
     scanOutBtn.disabled = true;
-
     outScanner = new Html5Qrcode("outMiniScanner");
-
     outScanner.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 250, height: 100 } },
         (decodedText) => {
-            flashOutBorder('green');
             stopOutScanner();
-            // Ищем материал по штрихкоду
             findAndSelectMaterial(decodedText);
         },
         () => {}
     ).catch(err => {
-        alert('Ошибка доступа к камере: ' + err.message);
+        alert('Ошибка камеры: ' + err.message);
         outScannerContainer.style.display = 'none';
         scanOutBtn.disabled = false;
     });
 });
 
-stopOutBtn.addEventListener('click', function() { stopOutScanner(); });
+stopOutBtn.addEventListener('click', () => stopOutScanner());
 
 function stopOutScanner() {
     if (outScanner) {
@@ -140,62 +147,28 @@ function stopOutScanner() {
     }
 }
 
-function flashOutBorder(color) {
-    outScannerContainer.style.borderColor = color;
-    setTimeout(() => { outScannerContainer.style.borderColor = '#ccc'; }, 1000);
-}
-
 function findAndSelectMaterial(barcode) {
     fetch(`/api/material-by-barcode?barcode=${encodeURIComponent(barcode)}`)
         .then(r => r.json())
         .then(data => {
             if (data.found) {
-                const m = data.material;
-                
-                // Сначала сбрасываем фильтр категории — показываем все
                 categoryFilter.value = '';
                 categoryFilter.dispatchEvent(new Event('change'));
-                
-                // Небольшая задержка, чтобы DOM обновился
                 setTimeout(() => {
-                    // Выбираем материал
                     for (let i = 0; i < materialSelect.options.length; i++) {
-                        if (materialSelect.options[i].value == m.id) {
+                        if (materialSelect.options[i].value == data.material.id) {
                             materialSelect.selectedIndex = i;
                             break;
                         }
                     }
-                    // Если не нашли (материал есть в базе, но не в списке) — перезагружаем
-                    if (materialSelect.value != m.id) {
-                        location.reload();
-                    }
-                    // Фокус на количество
+                    if (materialSelect.value != data.material.id) location.reload();
                     document.getElementById('quantity').focus();
                     document.getElementById('quantity').select();
                 }, 100);
-                
-                flash('Материал найден: ' + m.name, 'success');
             } else {
-                alert('Материал с таким штрихкодом не найден!\nШтрихкод: ' + barcode);
+                alert('Материал с таким штрихкодом не найден!');
             }
         });
-}
-
-// Функция для flash-сообщений
-function flash(message, category) {
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${category} alert-dismissible fade show`;
-    alertDiv.innerHTML = `${message} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    const main = document.querySelector('main');
-    main.insertBefore(alertDiv, main.firstChild);
-}
-
-// Очистка сканера при уходе
-window.addEventListener('beforeunload', function() { stopOutScanner(); });
-
-// Фокус на количество при загрузке, если материал уже выбран
-if (materialSelect.value) {
-    document.getElementById('quantity').focus();
 }
 </script>
 {% endblock %}
