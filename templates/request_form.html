@@ -1,0 +1,33 @@
+cat > templates/request_form.html << 'ENDOFFILE'
+{% extends "base.html" %}
+{% block title %}Создать заявку — Склад{% endblock %}
+{% block content %}
+<h1><i class="bi bi-send"></i> Заявка на перемещение в операционную</h1>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST">
+            <div class="mb-3">
+                <label for="material_id" class="form-label">Материал *</label>
+                <select class="form-select" id="material_id" name="material_id" required>
+                    <option value="">— Выберите материал —</option>
+                    {% for m in materials %}
+                    <option value="{{ m.id }}">{{ m.name }} {{ m.size or '' }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="mb-3">
+                <label for="quantity" class="form-label">Количество *</label>
+                <input type="number" class="form-control" id="quantity" name="quantity" min="1" value="1" required>
+            </div>
+            <div class="mb-3">
+                <label for="note" class="form-label">Примечание</label>
+                <input type="text" class="form-control" id="note" name="note" placeholder="Срочно и т.д.">
+            </div>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> Отправить заявку</button>
+            <a href="/requests" class="btn btn-secondary">Отмена</a>
+        </form>
+    </div>
+</div>
+{% endblock %}
+ENDOFFILE

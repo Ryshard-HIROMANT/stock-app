@@ -1,0 +1,47 @@
+cat > templates/requests.html << 'ENDOFFILE'
+{% extends "base.html" %}
+{% block title %}Заявки — Склад{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1><i class="bi bi-send"></i> Заявки на перемещение</h1>
+    {% if current_user.can_create_request() %}
+    <a href="/requests/add" class="btn btn-success"><i class="bi bi-plus-circle"></i> Создать заявку</a>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-body table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>Дата</th>
+                    <th>Материал</th>
+                    <th>Кол-во</th>
+                    <th>Куда</th>
+                    <th>Статус</th>
+                    <th>От кого</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in requests %}
+                <tr>
+                    <td>{{ r.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                    <td><strong>{{ r.material.name }}</strong> {{ r.material.size or '' }}</td>
+                    <td>{{ r.quantity }} шт.</td>
+                    <td><span class="badge bg-secondary">{{ r.to_location_code }}</span></td>
+                    <td>
+                        {% if r.status == 'pending' %}<span class="badge bg-warning text-dark">Ожидает</span>
+                        {% elif r.status == 'completed' %}<span class="badge bg-success">Выполнена</span>
+                        {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
+                    </td>
+                    <td>{{ r.from_user.full_name or r.from_user.username }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center text-muted">Заявок нет</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+ENDOFFILE
