@@ -33,14 +33,12 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     full_name = db.Column(db.String(200))
     role = db.Column(db.String(30), nullable=False, default='viewer')
-    # roles: admin, head, head_nurse, doctor_storekeeper, doctor, xray_lab
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     transactions = db.relationship('Transaction', backref='user', lazy=True)
     created_requests = db.relationship('TransferRequest', foreign_keys='TransferRequest.from_user_id', backref='from_user', lazy=True)
     processed_requests = db.relationship('TransferRequest', foreign_keys='TransferRequest.to_user_id', backref='to_user', lazy=True)
-        confirmations = db.relationship('SpendingDraft', foreign_keys='SpendingDraft.confirmed_by', backref='doctor', lazy=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -116,7 +114,7 @@ class Material(db.Model):
     barcode = db.Column(db.String(100), unique=True)
     min_stock = db.Column(db.Integer, default=0)
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'))
-    is_reusable = db.Column(db.Boolean, default=False)  # Повторное использование
+    is_reusable = db.Column(db.Boolean, default=False)
     note = db.Column(db.Text)
 
     batches = db.relationship('Batch', backref='material', lazy=True)
@@ -177,11 +175,11 @@ class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     batch_id = db.Column(db.Integer, db.ForeignKey('batches.id'), nullable=False)
-    type = db.Column(db.String(20), nullable=False)  # in, out, move_in, move_out, revision, reusable_in, reusable_out
+    type = db.Column(db.String(20), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
     note = db.Column(db.Text)
-    operation_id = db.Column(db.String(50))  # ID операции (для привязки списания)
-    doctor_name = db.Column(db.String(200))  # ФИО врача
+    operation_id = db.Column(db.String(50))
+    doctor_name = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):
@@ -232,12 +230,12 @@ class TransferRequest(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     from_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    to_user_id = db.Column(db.Integer, db.ForeignKey('users.id'))  # Кто обработал
+    to_user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     material_id = db.Column(db.Integer, db.ForeignKey('materials.id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
-    from_location_code = db.Column(db.String(50))  # Откуда (обычно материальная)
-    to_location_code = db.Column(db.String(50), default='oper')  # Куда (операционная)
-    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected, completed
+    from_location_code = db.Column(db.String(50))
+    to_location_code = db.Column(db.String(50), default='oper')
+    status = db.Column(db.String(20), default='pending')
     note = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     processed_at = db.Column(db.DateTime)
@@ -255,18 +253,19 @@ class SpendingDraft(db.Model):
     __tablename__ = 'spending_drafts'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # Кто создал
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     material_id = db.Column(db.Integer, db.ForeignKey('materials.id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
-    operation_id = db.Column(db.String(50))  # ID операции
-    doctor_name = db.Column(db.String(200))  # ФИО врача
-    status = db.Column(db.String(20), default='pending')  # pending, confirmed, rejected
-    confirmed_by = db.Column(db.Integer, db.ForeignKey('users.id'))  # Кто подтвердил
+    operation_id = db.Column(db.String(50))
+    doctor_name = db.Column(db.String(200))
+    status = db.Column(db.String(20), default='pending')
+    confirmed_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     note = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     confirmed_at = db.Column(db.DateTime)
 
     user = db.relationship('User', foreign_keys=[user_id])
+    doctor = db.relationship('User', foreign_keys=[confirmed_by])
     material = db.relationship('Material')
 
     def __repr__(self):
