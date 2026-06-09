@@ -40,6 +40,12 @@
                     <li class="nav-item"><a class="nav-link" href="/materials"><i class="bi bi-box"></i> Материалы</a></li>
                     <li class="nav-item"><a class="nav-link" href="/categories"><i class="bi bi-tags"></i> Категории</a></li>
                     <li class="nav-item"><a class="nav-link" href="/locations"><i class="bi bi-geo-alt"></i> Локации</a></li>
+                    {% if current_user.is_storekeeper() %}
+                    <li class="nav-item"><a class="nav-link" href="/transfers"><i class="bi bi-arrow-left-right"></i> Перемещения</a></li>
+                    {% endif %}
+                    {% if current_user.can_revision() %}
+                    <li class="nav-item"><a class="nav-link" href="/revision"><i class="bi bi-clipboard-check"></i> Ревизия</a></li>
+                    {% endif %}
                     {% if current_user.can_create_request() or current_user.can_process_requests() %}
                     <li class="nav-item"><a class="nav-link" href="/requests"><i class="bi bi-send"></i> Заявки</a></li>
                     {% endif %}

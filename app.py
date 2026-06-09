@@ -17,7 +17,6 @@ def create_app():
     db.init_app(app)
     login_manager.init_app(app)
 
-    # Автосоздание таблиц при запуске
     with app.app_context():
         db.create_all()
 
@@ -32,13 +31,10 @@ def create_app():
     def login():
         if current_user.is_authenticated:
             return redirect(url_for('index'))
-
         if request.method == 'POST':
             username = request.form.get('username', '').strip()
             password = request.form.get('password', '')
-
             user = User.query.filter_by(username=username).first()
-
             if user and user.check_password(password):
                 if user.is_active:
                     login_user(user)
@@ -49,7 +45,6 @@ def create_app():
                     flash('Ваша учётная запись отключена.', 'danger')
             else:
                 flash('Неверное имя пользователя или пароль.', 'danger')
-
         return render_template('login.html')
 
     @app.route('/logout')
@@ -66,75 +61,59 @@ def create_app():
     @login_required
     def index():
         today = date.today()
-
         batches = Batch.query.filter(
             Batch.is_active == True,
             Batch.quantity - Batch.used > 0
         ).order_by(Batch.expiry_date.asc()).all()
-
         total_materials = Material.query.count()
         total_batches = Batch.query.filter(Batch.is_active == True).count()
         expired_batches = Batch.query.filter(
-            Batch.is_active == True,
-            Batch.quantity - Batch.used > 0,
+            Batch.is_active == True, Batch.quantity - Batch.used > 0,
             Batch.expiry_date < today
         ).count()
-
         expiring_soon = Batch.query.filter(
-            Batch.is_active == True,
-            Batch.quantity - Batch.used > 0,
+            Batch.is_active == True, Batch.quantity - Batch.used > 0,
             Batch.expiry_date >= today,
             Batch.expiry_date <= db.func.date(today, '+90 days')
         ).count()
-
-        # Повторные материалы
         reusable_count = Material.query.filter_by(is_reusable=True).count()
-        # Заявки на перемещение
         pending_requests = TransferRequest.query.filter_by(status='pending').count()
-        # Неподтверждённые списания
         pending_drafts = SpendingDraft.query.filter_by(status='pending').count()
-
         return render_template('index.html',
-                               batches=batches,
-                               total_materials=total_materials,
-                               total_batches=total_batches,
-                               expired_batches=expired_batches,
-                               expiring_soon=expiring_soon,
-                               reusable_count=reusable_count,
-                               pending_requests=pending_requests,
-                               pending_drafts=pending_drafts,
+                               batches=batches, total_materials=total_materials,
+                               total_batches=total_batches, expired_batches=expired_batches,
+                               expiring_soon=expiring_soon, reusable_count=reusable_count,
+                               pending_requests=pending_requests, pending_drafts=pending_drafts,
                                today=today)
 
     # ──────────────────────────────────────────
-    # ДЕТАЛИЗАЦИЯ ПРОСРОЧЕННЫХ И ИСТЕКАЮЩИХ
+    # ДЕТАЛИЗАЦИЯ
     # ──────────────────────────────────────────
     @app.route('/dashboard/expired')
     @login_required
     def dashboard_expired():
         today = date.today()
         batches = Batch.query.filter(
-            Batch.is_active == True,
-            Batch.quantity - Batch.used > 0,
+            Batch.is_active == True, Batch.quantity - Batch.used > 0,
             Batch.expiry_date < today
         ).order_by(Batch.expiry_date.asc()).all()
-        return render_template('dashboard_filtered.html',
-                               batches=batches, title='Просроченные позиции', filter_type='expired')
+        return render_template('dashboard_filtered.html', batches=batches,
+                               title='Просроченные позиции', filter_type='expired')
 
     @app.route('/dashboard/expiring')
     @login_required
     def dashboard_expiring():
         today = date.today()
         batches = Batch.query.filter(
-            Batch.is_active == True,
-            Batch.quantity - Batch.used > 0,
+            Batch.is_active == True, Batch.quantity - Batch.used > 0,
             Batch.expiry_date >= today,
             Batch.expiry_date <= db.func.date(today, '+90 days')
         ).order_by(Batch.expiry_date.asc()).all()
-        return render_template('dashboard_filtered.html',
-                               batches=batches, title='Истекают в течение 90 дней', filter_type='expiring')
+        return render_template('dashboard_filtered.html', batches=batches,
+                               title='Истекают в течение 90 дней', filter_type='expiring')
 
     # ──────────────────────────────────────────
-    # МАТЕРИАЛЫ (справочник)
+    # МАТЕРИАЛЫ
     # ──────────────────────────────────────────
     @app.route('/materials')
     @login_required
@@ -142,7 +121,6 @@ def create_app():
         search = request.args.get('search', '').strip()
         category_id = request.args.get('category_id', '').strip()
         reusable = request.args.get('reusable', '').strip()
-
         query = Material.query
         if search:
             query = query.filter(
@@ -156,11 +134,9 @@ def create_app():
             query = query.filter(Material.is_reusable == True)
         elif reusable == '0':
             query = query.filter(Material.is_reusable == False)
-
         materials_list = query.order_by(Material.name).all()
         categories_list = Category.query.order_by(Category.name).all()
-        return render_template('materials.html',
-                               materials=materials_list, search=search,
+        return render_template('materials.html', materials=materials_list, search=search,
                                categories=categories_list, selected_category=category_id)
 
     @app.route('/materials/add', methods=['GET', 'POST'])
@@ -169,7 +145,6 @@ def create_app():
         if not current_user.is_storekeeper():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('materials'))
-
         if request.method == 'POST':
             name = request.form.get('name', '').strip()
             size = request.form.get('size', '').strip()
@@ -178,12 +153,10 @@ def create_app():
             is_reusable = request.form.get('is_reusable') == '1'
             min_stock = request.form.get('min_stock', '0').strip()
             note = request.form.get('note', '').strip()
-
             if not name:
                 flash('Название обязательно!', 'danger')
                 categories_list = Category.query.order_by(Category.name).all()
                 return render_template('material_form.html', material=None, categories=categories_list)
-
             material = Material(
                 name=name, size=size if size else None,
                 barcode=barcode if barcode else None,
@@ -196,7 +169,6 @@ def create_app():
             db.session.commit()
             flash(f'Материал "{name}" добавлен!', 'success')
             return redirect(url_for('materials'))
-
         categories_list = Category.query.order_by(Category.name).all()
         return render_template('material_form.html', material=None, categories=categories_list)
 
@@ -206,9 +178,7 @@ def create_app():
         if not current_user.is_storekeeper():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('materials'))
-
         material = Material.query.get_or_404(id)
-
         if request.method == 'POST':
             material.name = request.form.get('name', '').strip()
             material.size = request.form.get('size', '').strip() or None
@@ -222,7 +192,6 @@ def create_app():
             db.session.commit()
             flash(f'Материал "{material.name}" обновлён!', 'success')
             return redirect(url_for('materials'))
-
         categories_list = Category.query.order_by(Category.name).all()
         return render_template('material_form.html', material=material, categories=categories_list)
 
@@ -417,7 +386,6 @@ def create_app():
         if not current_user.is_storekeeper():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
-
         if request.method == 'POST':
             mat_id = request.form.get('material_id', '').strip()
             qty = int(request.form.get('quantity', 0))
@@ -430,11 +398,9 @@ def create_app():
             new_barcode = request.form.get('new_material_barcode', '').strip()
             new_category_id = request.form.get('new_material_category_id', '').strip()
             is_reusable = request.form.get('is_reusable') == '1'
-
             if qty <= 0:
                 flash('Укажите количество больше 0.', 'danger')
                 return redirect(url_for('operation_in'))
-
             if mat_id and mat_id != 'new':
                 material = Material.query.get_or_404(int(mat_id))
             elif new_name:
@@ -451,7 +417,6 @@ def create_app():
             else:
                 flash('Выберите материал или введите название нового.', 'danger')
                 return redirect(url_for('operation_in'))
-
             location = Location.query.filter_by(code=location_code).first() if location_code else None
             expiry_date = datetime.strptime(expiry_str, '%Y-%m-%d').date() if expiry_str else None
             batch = Batch(
@@ -461,7 +426,6 @@ def create_app():
             )
             db.session.add(batch)
             db.session.flush()
-
             t_type = 'reusable_in' if material.is_reusable else 'in'
             transaction = Transaction(
                 user_id=current_user.id, batch_id=batch.id, type=t_type,
@@ -471,7 +435,6 @@ def create_app():
             db.session.commit()
             flash(f'Приход: {material.name} — {qty} шт.!', 'success')
             return redirect(url_for('index'))
-
         materials_list = Material.query.order_by(Material.name).all()
         locations_list = Location.query.order_by(Location.code).all()
         categories_list = Category.query.order_by(Category.name).all()
@@ -488,19 +451,15 @@ def create_app():
         if not current_user.can_create_draft():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
-
         if request.method == 'POST':
             mat_id = request.form.get('material_id')
             qty = int(request.form.get('quantity', 0))
             note = request.form.get('note', '').strip()
             operation_id = request.form.get('operation_id', '').strip()
             doctor_name = request.form.get('doctor_name', '').strip()
-
             if not mat_id or qty <= 0:
                 flash('Выберите материал и укажите количество.', 'danger')
                 return redirect(url_for('operation_out'))
-
-            # Если врач или заведующий — списываем сразу
             if current_user.role in ('admin', 'head', 'doctor_storekeeper', 'doctor'):
                 material = Material.query.get_or_404(mat_id)
                 batches = Batch.query.filter(
@@ -527,26 +486,21 @@ def create_app():
                 db.session.commit()
                 flash(f'Расход: {material.name} — {qty} шт.!', 'success')
             else:
-                # Лаборант создаёт черновик
                 draft = SpendingDraft(
                     user_id=current_user.id, material_id=int(mat_id),
-                    quantity=qty, operation_id=operation_id, doctor_name=doctor_name,
-                    note=note
+                    quantity=qty, operation_id=operation_id, doctor_name=doctor_name, note=note
                 )
                 db.session.add(draft)
                 db.session.commit()
-                flash(f'Черновик списания создан. Ожидает подтверждения врачом.', 'info')
-
+                flash('Черновик списания создан. Ожидает подтверждения врачом.', 'info')
             return redirect(url_for('index'))
-
         materials_list = Material.query.order_by(Material.name).all()
         categories_list = Category.query.order_by(Category.name).all()
         return render_template('operation_out.html',
-                               materials=materials_list, categories=categories_list,
-                               selected_material=None)
+                               materials=materials_list, categories=categories_list, selected_material=None)
 
     # ──────────────────────────────────────────
-    # ПОДТВЕРЖДЕНИЕ СПИСАНИЙ (для врачей)
+    # ПОДТВЕРЖДЕНИЕ СПИСАНИЙ
     # ──────────────────────────────────────────
     @app.route('/spending/confirm')
     @login_required
@@ -564,7 +518,6 @@ def create_app():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
         draft = SpendingDraft.query.get_or_404(id)
-        # Списываем материал
         material = draft.material
         batches = Batch.query.filter(
             Batch.material_id == material.id, Batch.is_active == True,
@@ -643,6 +596,141 @@ def create_app():
             return redirect(url_for('requests_list'))
         materials_list = Material.query.order_by(Material.name).all()
         return render_template('request_form.html', materials=materials_list)
+
+    # ──────────────────────────────────────────
+    # ПЕРЕМЕЩЕНИЯ
+    # ──────────────────────────────────────────
+    @app.route('/transfers')
+    @login_required
+    def transfers_list():
+        transfers = Transfer.query.order_by(Transfer.created_at.desc()).limit(50).all()
+        return render_template('transfers.html', transfers=transfers)
+
+    @app.route('/transfers/add', methods=['GET', 'POST'])
+    @login_required
+    def transfer_add():
+        if not current_user.is_storekeeper():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('index'))
+        if request.method == 'POST':
+            from_location_code = request.form.get('from_location', '').strip()
+            to_location_code = request.form.get('to_location', '').strip()
+            note = request.form.get('note', '').strip()
+            if not from_location_code or not to_location_code:
+                flash('Выберите обе локации.', 'danger')
+                return redirect(url_for('transfer_add'))
+            if from_location_code == to_location_code:
+                flash('Локации должны быть разными.', 'danger')
+                return redirect(url_for('transfer_add'))
+            from_loc = Location.query.filter_by(code=from_location_code).first()
+            to_loc = Location.query.filter_by(code=to_location_code).first()
+            if not from_loc or not to_loc:
+                flash('Локация не найдена.', 'danger')
+                return redirect(url_for('transfer_add'))
+            transfer = Transfer(
+                from_location_id=from_loc.id, to_location_id=to_loc.id,
+                user_id=current_user.id, note=note
+            )
+            db.session.add(transfer)
+            db.session.flush()
+            index = 0
+            while True:
+                batch_key = f'batch_id_{index}'
+                qty_key = f'qty_{index}'
+                if batch_key not in request.form:
+                    break
+                batch_id = request.form.get(batch_key)
+                qty = int(request.form.get(qty_key, 0))
+                if batch_id and qty > 0:
+                    batch = Batch.query.get(int(batch_id))
+                    if batch and batch.location_id == from_loc.id and batch.remaining >= qty:
+                        batch.used += qty
+                        new_batch = Batch(
+                            material_id=batch.material_id, location_id=to_loc.id,
+                            batch_number=batch.batch_number, expiry_date=batch.expiry_date,
+                            quantity=qty, used=0
+                        )
+                        db.session.add(new_batch)
+                        db.session.flush()
+                        item = TransferItem(transfer_id=transfer.id, batch_id=batch.id, quantity=qty)
+                        db.session.add(item)
+                        db.session.add(Transaction(
+                            user_id=current_user.id, batch_id=batch.id, type='move_out',
+                            quantity=qty, note=f'Перемещение в {to_loc.code}'
+                        ))
+                        db.session.add(Transaction(
+                            user_id=current_user.id, batch_id=new_batch.id, type='move_in',
+                            quantity=qty, note=f'Перемещение из {from_loc.code}'
+                        ))
+                index += 1
+            db.session.commit()
+            flash('Перемещение выполнено!', 'success')
+            return redirect(url_for('transfers_list'))
+        locations_list = Location.query.order_by(Location.code).all()
+        return render_template('transfer_form.html', locations=locations_list)
+
+    @app.route('/api/batches-by-location')
+    @login_required
+    def api_batches_by_location():
+        location_code = request.args.get('location', '').strip()
+        if not location_code:
+            return []
+        location = Location.query.filter_by(code=location_code).first()
+        if not location:
+            return []
+        batches = Batch.query.filter(
+            Batch.location_id == location.id, Batch.is_active == True,
+            Batch.quantity - Batch.used > 0
+        ).order_by(Batch.expiry_date.asc()).all()
+        return [{
+            'id': b.id, 'name': b.material.name, 'size': b.material.size or '',
+            'remaining': b.remaining,
+            'expiry': b.expiry_date.strftime('%d.%m.%Y') if b.expiry_date else '—',
+        } for b in batches]
+
+    # ──────────────────────────────────────────
+    # РЕВИЗИЯ
+    # ──────────────────────────────────────────
+    @app.route('/revision', methods=['GET', 'POST'])
+    @login_required
+    def revision():
+        if not current_user.can_revision():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('index'))
+        if request.method == 'POST':
+            batch_id = request.form.get('batch_id')
+            new_quantity = int(request.form.get('new_quantity', 0))
+            new_used = int(request.form.get('new_used', 0))
+            note = request.form.get('note', '').strip()
+            batch = Batch.query.get_or_404(int(batch_id))
+            old_quantity = batch.quantity
+            old_used = batch.used
+            batch.quantity = new_quantity
+            batch.used = new_used
+            revision_record = Revision(
+                user_id=current_user.id, batch_id=batch.id,
+                old_quantity=old_quantity, new_quantity=new_quantity,
+                old_used=old_used, new_used=new_used,
+                note=f'Ревизия от {date.today().strftime("%d.%m.%Y")}. {note}'
+            )
+            db.session.add(revision_record)
+            db.session.add(Transaction(
+                user_id=current_user.id, batch_id=batch.id, type='revision',
+                quantity=abs(new_quantity - old_quantity),
+                note=f'Ревизия: qty {old_quantity}→{new_quantity}, used {old_used}→{new_used}'
+            ))
+            db.session.commit()
+            flash('Ревизия проведена!', 'success')
+            return redirect(url_for('revision'))
+        location_code = request.args.get('location', '').strip()
+        location = Location.query.filter_by(code=location_code).first() if location_code else None
+        batches = []
+        if location:
+            batches = Batch.query.filter(
+                Batch.location_id == location.id, Batch.is_active == True
+            ).order_by(Batch.expiry_date.asc()).all()
+        locations_list = Location.query.order_by(Location.code).all()
+        return render_template('revision.html', locations=locations_list, batches=batches, selected_location=location_code)
 
     # ──────────────────────────────────────────
     # ЖУРНАЛ ОПЕРАЦИЙ
