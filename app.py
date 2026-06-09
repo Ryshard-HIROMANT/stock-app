@@ -741,8 +741,28 @@ def create_app():
         transactions_list = Transaction.query.order_by(Transaction.created_at.desc()).limit(100).all()
         return render_template('transactions.html', transactions=transactions_list)
 
+    # ──────────────────────────────────────────
+    # ВРЕМЕННЫЙ: СОЗДАНИЕ ТЕСТОВЫХ ПОЛЬЗОВАТЕЛЕЙ
+    # ──────────────────────────────────────────
+    @app.route('/init-users')
+    def init_users():
+        users_data = [
+            ('admin', 'admin123', 'Администратор', 'admin'),
+            ('zaved', 'zaved123', 'Заведующий отделением', 'head'),
+            ('sestra', 'sestra123', 'Старшая медсестра', 'head_nurse'),
+            ('vrach_sklad', 'vrach123', 'Врач-кладовщик', 'doctor_storekeeper'),
+            ('vrach', 'vrach123', 'Врач-оператор', 'doctor'),
+            ('xray', 'xray123', 'Рентгенлаборант', 'xray_lab'),
+        ]
+        for username, password, full_name, role in users_data:
+            if not User.query.filter_by(username=username).first():
+                user = User(username=username, full_name=full_name, role=role)
+                user.set_password(password)
+                db.session.add(user)
+        db.session.commit()
+        return 'Пользователи созданы! <a href="/">Войти</a>'
+    
     return app
-
 
 if __name__ == '__main__':
     app = create_app()
