@@ -1,0 +1,100 @@
+cat > templates/transfer_form.html << 'ENDOFFILE'
+{% extends "base.html" %}
+{% block title %}Новое перемещение — Склад{% endblock %}
+{% block content %}
+<h1><i class="bi bi-arrow-left-right"></i> Перемещение материалов</h1>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST" id="transferForm">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label for="from_location" class="form-label">Откуда *</label>
+                    <select class="form-select" id="from_location" name="from_location" required onchange="loadBatches()">
+                        <option value="">— Выберите локацию —</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.code }}">{{ loc.code }} — {{ loc.description }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="to_location" class="form-label">Куда *</label>
+                    <select class="form-select" id="to_location" name="to_location" required>
+                        <option value="">— Выберите локацию —</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.code }}">{{ loc.code }} — {{ loc.description }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="note" class="form-label">Примечание</label>
+                    <input type="text" class="form-control" id="note" name="note" placeholder="Причина перемещения">
+                </div>
+            </div>
+
+            <h5>Материалы для перемещения:</h5>
+            <div id="batchesList"></div>
+
+            <button type="button" class="btn btn-outline-primary btn-sm mb-3" onclick="addBatchRow()">
+                <i class="bi bi-plus"></i> Добавить позицию
+            </button>
+            <br>
+            <button type="submit" class="btn btn-success btn-lg"><i class="bi bi-check-circle"></i> Выполнить перемещение</button>
+            <a href="/transfers" class="btn btn-secondary btn-lg">Отмена</a>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let availableBatches = [];
+let rowIndex = 0;
+
+function loadBatches() {
+    const code = document.getElementById('from_location').value;
+    if (!code) return;
+    fetch('/api/batches-by-location?location=' + code)
+        .then(r => r.json())
+        .then(data => {
+            availableBatches = data;
+            document.getElementById('batchesList').innerHTML = '';
+            rowIndex = 0;
+            addBatchRow();
+        });
+}
+
+function addBatchRow() {
+    const container = document.getElementById('batchesList');
+    const row = document.createElement('div');
+    row.className = 'row mb-2';
+    let options = '<option value="">— Выберите партию —</option>';
+    availableBatches.forEach((b, i) => {
+        options += `<option value="${b.id}" data-max="${b.remaining}">${b.name} ${b.size} (ост: ${b.remaining}, срок: ${b.expiry})</option>`;
+    });
+    row.innerHTML = `
+        <div class="col-md-6">
+            <select class="form-select batch-select" name="batch_id_${rowIndex}" onchange="updateMax(this)" required>${options}</select>
+        </div>
+        <div class="col-md-3">
+            <input type="number" class="form-control qty-input" name="qty_${rowIndex}" min="1" value="1" required>
+        </div>
+        <div class="col-md-3">
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.parentElement.parentElement.remove()"><i class="bi bi-trash"></i></button>
+        </div>
+    `;
+    container.appendChild(row);
+    rowIndex++;
+}
+
+function updateMax(select) {
+    const max = select.options[select.selectedIndex]?.dataset?.max || 0;
+    const qtyInput = select.parentElement.parentElement.querySelector('.qty-input');
+    if (qtyInput) {
+        qtyInput.max = max;
+        if (parseInt(qtyInput.value) > max) qtyInput.value = max;
+    }
+}
+</script>
+{% endblock %}
+ENDOFFILE

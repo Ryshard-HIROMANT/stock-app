@@ -1,0 +1,85 @@
+cat > templates/revision.html << 'ENDOFFILE'
+{% extends "base.html" %}
+{% block title %}Ревизия — Склад{% endblock %}
+{% block content %}
+<h1><i class="bi bi-clipboard-check"></i> Ревизия остатков</h1>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="GET">
+            <div class="row">
+                <div class="col-md-4">
+                    <select class="form-select" name="location" onchange="this.form.submit()">
+                        <option value="">— Выберите локацию —</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.code }}" {% if selected_location == loc.code %}selected{% endif %}>{{ loc.code }} — {{ loc.description }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if batches %}
+<div class="card">
+    <div class="card-body table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead class="table-dark">
+                <tr><th>Материал</th><th>Партия</th><th>Срок</th><th>Приход</th><th>Расход</th><th>Остаток</th><th>Действие</th></tr>
+            </thead>
+            <tbody>
+                {% for b in batches %}
+                <tr>
+                    <td>{{ b.material.name }} {{ b.material.size or '' }}</td>
+                    <td>{{ b.batch_number or '—' }}</td>
+                    <td>{{ b.expiry_date.strftime('%d.%m.%Y') if b.expiry_date else '—' }}</td>
+                    <td>{{ b.quantity }}</td>
+                    <td>{{ b.used }}</td>
+                    <td>{{ b.remaining }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-warning" onclick="editBatch({{ b.id }}, {{ b.quantity }}, {{ b.used }})">
+                            <i class="bi bi-pencil"></i> Корректировать
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Модальное окно для корректировки -->
+<div class="modal fade" id="revisionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning"><h5 class="modal-title"><i class="bi bi-pencil"></i> Корректировка остатков</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" id="rev_batch_id" name="batch_id">
+                    <div class="mb-3"><label class="form-label">Новое количество (приход)</label><input type="number" class="form-control" id="rev_quantity" name="new_quantity" min="0" required></div>
+                    <div class="mb-3"><label class="form-label">Новый расход</label><input type="number" class="form-control" id="rev_used" name="new_used" min="0" required></div>
+                    <div class="mb-3"><label class="form-label">Примечание</label><input type="text" class="form-control" name="note" placeholder="Причина корректировки"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-warning">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editBatch(id, qty, used) {
+    document.getElementById('rev_batch_id').value = id;
+    document.getElementById('rev_quantity').value = qty;
+    document.getElementById('rev_used').value = used;
+    new bootstrap.Modal(document.getElementById('revisionModal')).show();
+}
+</script>
+{% endblock %}
+ENDOFFILE
