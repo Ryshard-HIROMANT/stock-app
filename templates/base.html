@@ -37,6 +37,7 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item"><a class="nav-link" href="/"><i class="bi bi-speedometer2"></i> Дашборд</a></li>
+                    {% if current_user.is_authenticated %}
                     <li class="nav-item"><a class="nav-link" href="/materials"><i class="bi bi-box"></i> Материалы</a></li>
                     <li class="nav-item"><a class="nav-link" href="/categories"><i class="bi bi-tags"></i> Категории</a></li>
                     <li class="nav-item"><a class="nav-link" href="/locations"><i class="bi bi-geo-alt"></i> Локации</a></li>
@@ -60,6 +61,7 @@
                     <li class="nav-item"><a class="nav-link" href="/spending/confirm"><i class="bi bi-check-circle"></i> Подтверждение</a></li>
                     {% endif %}
                     <li class="nav-item"><a class="nav-link" href="/transactions"><i class="bi bi-journal-text"></i> Журнал</a></li>
+                    {% endif %}
                 </ul>
                 {% if current_user.is_authenticated %}
                 <span class="navbar-text text-light me-2">
