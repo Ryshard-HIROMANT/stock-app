@@ -149,7 +149,7 @@ document.getElementById('scanBtn').addEventListener('click', function() {
     document.getElementById('scannerContainer').style.display = 'block';
     this.disabled = true;
     scanner = new Html5Qrcode("miniScanner");
-    scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 100 } },
+    scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 300, height: 150 } },
         (decodedText) => {
             stopScanner();
             fetch(`/api/material-by-barcode?barcode=${encodeURIComponent(decodedText)}`)
