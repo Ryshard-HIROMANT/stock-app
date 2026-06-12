@@ -787,81 +787,113 @@ def create_app():
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Остатки на складах"
+        # Удаляем дефолтный лист
+        wb.remove(wb.active)
 
-        headers = ['Наименование', 'Размер', 'Категория', 'Штрихкод', 'Партия',
-                   'Локация', 'Срок годности', 'Приход', 'Расход', 'Остаток', 'Статус']
+        today = date.today()
+        locations = Location.query.order_by(Location.code).all()
+
         header_fill = PatternFill(start_color='0d6efd', end_color='0d6efd', fill_type='solid')
-        header_font = Font(color='FFFFFF', bold=True, size=12)
+        header_font = Font(color='FFFFFF', bold=True, size=11)
+        cat_fill = PatternFill(start_color='cfe2ff', end_color='cfe2ff', fill_type='solid')
+        cat_font = Font(bold=True, size=11)
+        red_fill = PatternFill(start_color='ffe0e0', end_color='ffe0e0', fill_type='solid')
+        yellow_fill = PatternFill(start_color='fff3cd', end_color='fff3cd', fill_type='solid')
         thin_border = Border(
             left=Side(style='thin'), right=Side(style='thin'),
             top=Side(style='thin'), bottom=Side(style='thin')
         )
+        headers = ['Наименование', 'Размер', 'Штрихкод', 'Партия',
+                   'Срок годности', 'Приход', 'Расход', 'Остаток', 'Статус']
 
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-            cell.border = thin_border
+        for loc in locations:
+            batches = Batch.query.filter(
+                Batch.location_id == loc.id,
+                Batch.is_active == True
+            ).order_by(Batch.expiry_date.asc()).all()
 
-        today = date.today()
-        batches = Batch.query.filter(Batch.is_active == True).order_by(Batch.expiry_date.asc()).all()
-        row = 2
-        red_fill = PatternFill(start_color='ffe0e0', end_color='ffe0e0', fill_type='solid')
-        yellow_fill = PatternFill(start_color='fff3cd', end_color='fff3cd', fill_type='solid')
-
-        for b in batches:
-            remaining = b.remaining
-            if remaining == 0 and b.quantity == 0:
+            if not batches:
                 continue
-            status = 'Активен'
-            fill = None
-            if b.expiry_date and b.expiry_date < today:
-                status = 'Просрочен'
-                fill = red_fill
-            elif b.expiry_date and (b.expiry_date - today).days <= 90:
-                status = 'Истекает'
-                fill = yellow_fill
 
-            data = [
-                b.material.name,
-                b.material.size or '',
-                b.material.category_name or '',
-                b.material.barcode or '',
-                b.batch_number or '',
-                b.location.code if b.location else '',
-                b.expiry_date.strftime('%d.%m.%Y') if b.expiry_date else '',
-                b.quantity,
-                b.used,
-                remaining,
-                status,
-            ]
-            for col, value in enumerate(data, 1):
-                cell = ws.cell(row=row, column=col, value=value)
+            # Безопасное имя листа (макс 31 символ)
+            sheet_name = f'{loc.code} - {loc.description}'[:31]
+            ws = wb.create_sheet(title=sheet_name)
+
+            # Заголовки
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
                 cell.border = thin_border
-                if fill:
-                    cell.fill = fill
-            row += 1
 
-        for col in ws.columns:
-            max_length = 0
-            col_letter = col[0].column_letter
-            for cell in col:
-                if cell.value:
-                    max_length = max(max_length, len(str(cell.value)))
-            ws.column_dimensions[col_letter].width = min(max_length + 2, 40)
+            # Группировка по категориям
+            categories_dict = {}
+            for b in batches:
+                cat_name = b.material.category_name or 'Без категории'
+                if cat_name not in categories_dict:
+                    categories_dict[cat_name] = []
+                categories_dict[cat_name].append(b)
+
+            row = 2
+            for cat_name in sorted(categories_dict.keys()):
+                # Строка-разделитель с названием категории
+                ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(headers))
+                cell = ws.cell(row=row, column=1, value=f'📁 {cat_name}')
+                cell.fill = cat_fill
+                cell.font = cat_font
+                cell.border = thin_border
+                row += 1
+
+                for b in categories_dict[cat_name]:
+                    remaining = b.remaining
+                    if remaining == 0 and b.quantity == 0:
+                        continue
+                    status = 'Активен'
+                    fill = None
+                    if b.expiry_date and b.expiry_date < today:
+                        status = 'Просрочен'
+                        fill = red_fill
+                    elif b.expiry_date and (b.expiry_date - today).days <= 90:
+                        status = 'Истекает'
+                        fill = yellow_fill
+
+                    data = [
+                        b.material.name,
+                        b.material.size or '',
+                        b.material.barcode or '',
+                        b.batch_number or '',
+                        b.expiry_date.strftime('%d.%m.%Y') if b.expiry_date else '',
+                        b.quantity,
+                        b.used,
+                        remaining,
+                        status,
+                    ]
+                    for col, value in enumerate(data, 1):
+                        cell = ws.cell(row=row, column=col, value=value)
+                        cell.border = thin_border
+                        if fill:
+                            cell.fill = fill
+                    row += 1
+
+            # Автоширина
+            for col in ws.columns:
+                max_length = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                ws.column_dimensions[col_letter].width = min(max_length + 2, 40)
 
         output = BytesIO()
         wb.save(output)
         output.seek(0)
 
-        filename = f'Остатки_на_складах_{today.strftime("%d.%m.%Y")}.xlsx'
+        filename = f'Остатки_по_складам_{today.strftime("%d.%m.%Y")}.xlsx'
         return send_file(output, download_name=filename,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                          as_attachment=True)
-
+    
     return app
 
 
