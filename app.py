@@ -986,6 +986,60 @@ def create_app():
             User.is_active == True
         ).order_by(User.full_name).all()
         return [{'id': u.id, 'name': u.full_name or u.username} for u in doctors]
+    # ──────────────────────────────────────────
+    # АНАЛИТИКА (заведующий, админ)
+    # ──────────────────────────────────────────
+    @app.route('/analytics')
+    @login_required
+    def analytics():
+        if not current_user.can_reports():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('index'))
+
+        from collections import Counter
+
+        # Период
+        start_str = request.args.get('start', '')
+        end_str = request.args.get('end', '')
+
+        query = Transaction.query.filter(
+            Transaction.type.in_(['out', 'reusable_out'])
+        )
+
+        if start_str:
+            start_date = datetime.strptime(start_str, '%Y-%m-%d')
+            query = query.filter(Transaction.created_at >= start_date)
+        if end_str:
+            end_date = datetime.strptime(end_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            query = query.filter(Transaction.created_at <= end_date)
+
+        transactions = query.order_by(Transaction.created_at.desc()).all()
+
+        # Общая сводка
+        total_operations = len(set(t.operation_id for t in transactions if t.operation_id))
+        total_items = sum(t.quantity for t in transactions)
+
+        # По врачам
+        doctor_stats = Counter()
+        for t in transactions:
+            if t.doctor_name:
+                doctor_stats[t.doctor_name] += t.quantity
+        top_doctors = doctor_stats.most_common(10)
+
+        # По материалам
+        material_stats = Counter()
+        for t in transactions:
+            name = t.batch.material.name if t.batch and t.batch.material else '—'
+            material_stats[name] += t.quantity
+        top_materials = material_stats.most_common(10)
+
+        return render_template('analytics.html',
+                               transactions=transactions,
+                               total_operations=total_operations,
+                               total_items=total_items,
+                               top_doctors=top_doctors,
+                               top_materials=top_materials,
+                               start=start_str, end=end_str)
     
     return app
 

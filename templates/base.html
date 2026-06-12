@@ -65,6 +65,9 @@
                     {% endif %}
                     <li class="nav-item"><a class="nav-link" href="/transactions"><i class="bi bi-journal-text"></i> Журнал</a></li>
                     {% endif %}
+                    {% if current_user.can_reports() %}
+                    <li class="nav-item"><a class="nav-link" href="/analytics"><i class="bi bi-graph-up"></i> Аналитика</a></li>
+                    {% endif %}
                 </ul>
                 {% if current_user.is_authenticated %}
                 <span class="navbar-text text-light me-2">

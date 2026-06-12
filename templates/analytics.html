@@ -1,0 +1,75 @@
+cat > templates/analytics.html << 'ENDOFFILE'
+{% extends "base.html" %}
+{% block title %}Аналитика — Склад{% endblock %}
+{% block content %}
+<h1 class="mb-3"><i class="bi bi-graph-up"></i> Аналитика расходов</h1>
+
+<!-- Фильтр -->
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="GET" class="row g-2">
+            <div class="col-md-3">
+                <label class="form-label">С даты</label>
+                <input type="date" class="form-control" name="start" value="{{ start }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">По дату</label>
+                <input type="date" class="form-control" name="end" value="{{ end }}">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-funnel"></i> Показать</button>
+                <a href="/analytics" class="btn btn-outline-secondary ms-2">Сбросить</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Сводка -->
+<div class="row mb-3">
+    <div class="col-md-6 mb-2">
+        <div class="card bg-primary text-white h-100">
+            <div class="card-body"><h5 class="card-title">{{ total_operations }}</h5><p class="card-text">Операций за период</p></div>
+        </div>
+    </div>
+    <div class="col-md-6 mb-2">
+        <div class="card bg-success text-white h-100">
+            <div class="card-body"><h5 class="card-title">{{ total_items }}</h5><p class="card-text">Всего списано единиц</p></div>
+        </div>
+    </div>
+</div>
+
+<!-- Топ врачей -->
+<div class="card mb-3">
+    <div class="card-header bg-dark text-white"><h5 class="mb-0"><i class="bi bi-people"></i> Топ врачей по расходам</h5></div>
+    <div class="card-body table-responsive">
+        <table class="table table-striped table-hover">
+            <thead><tr><th>#</th><th>Врач</th><th>Списано единиц</th></tr></thead>
+            <tbody>
+                {% for name, qty in top_doctors %}
+                <tr><td>{{ loop.index }}</td><td>{{ name }}</td><td>{{ qty }}</td></tr>
+                {% else %}
+                <tr><td colspan="3" class="text-muted">Нет данных</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Топ материалов -->
+<div class="card mb-3">
+    <div class="card-header bg-dark text-white"><h5 class="mb-0"><i class="bi bi-box"></i> Топ материалов по расходам</h5></div>
+    <div class="card-body table-responsive">
+        <table class="table table-striped table-hover">
+            <thead><tr><th>#</th><th>Материал</th><th>Списано единиц</th></tr></thead>
+            <tbody>
+                {% for name, qty in top_materials %}
+                <tr><td>{{ loop.index }}</td><td>{{ name }}</td><td>{{ qty }}</td></tr>
+                {% else %}
+                <tr><td colspan="3" class="text-muted">Нет данных</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+ENDOFFILE
