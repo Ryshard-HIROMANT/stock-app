@@ -787,8 +787,9 @@ def create_app():
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
         wb = Workbook()
-        # Удаляем дефолтный лист
-        wb.remove(wb.active)
+        ws_default = wb.active
+        ws_default.title = "Пусто"
+        first_sheet = True
 
         today = date.today()
         locations = Location.query.order_by(Location.code).all()
@@ -815,11 +816,14 @@ def create_app():
             if not batches:
                 continue
 
-            # Безопасное имя листа (макс 31 символ)
             sheet_name = f'{loc.code} - {loc.description}'[:31]
-            ws = wb.create_sheet(title=sheet_name)
+            if first_sheet:
+                ws = ws_default
+                ws.title = sheet_name
+                first_sheet = False
+            else:
+                ws = wb.create_sheet(title=sheet_name)
 
-            # Заголовки
             for col, header in enumerate(headers, 1):
                 cell = ws.cell(row=1, column=col, value=header)
                 cell.fill = header_fill
@@ -827,7 +831,6 @@ def create_app():
                 cell.alignment = Alignment(horizontal='center', vertical='center')
                 cell.border = thin_border
 
-            # Группировка по категориям
             categories_dict = {}
             for b in batches:
                 cat_name = b.material.category_name or 'Без категории'
@@ -837,9 +840,8 @@ def create_app():
 
             row = 2
             for cat_name in sorted(categories_dict.keys()):
-                # Строка-разделитель с названием категории
                 ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(headers))
-                cell = ws.cell(row=row, column=1, value=f'📁 {cat_name}')
+                cell = ws.cell(row=row, column=1, value=f'{cat_name}')
                 cell.fill = cat_fill
                 cell.font = cat_font
                 cell.border = thin_border
@@ -876,7 +878,6 @@ def create_app():
                             cell.fill = fill
                     row += 1
 
-            # Автоширина
             for col in ws.columns:
                 max_length = 0
                 col_letter = col[0].column_letter
@@ -884,6 +885,10 @@ def create_app():
                     if cell.value:
                         max_length = max(max_length, len(str(cell.value)))
                 ws.column_dimensions[col_letter].width = min(max_length + 2, 40)
+
+        # Удаляем пустой лист, если есть другие
+        if len(wb.sheetnames) > 1:
+            wb.remove(wb["Пусто"])
 
         output = BytesIO()
         wb.save(output)
