@@ -1,4 +1,3 @@
-cat > templates/admin_user_form.html << 'ENDOFFILE'
 {% extends "base.html" %}
 {% block title %}{{ 'Редактировать' if user else 'Добавить' }} пользователя — Админ{% endblock %}
 {% block content %}
@@ -23,6 +22,9 @@ cat > templates/admin_user_form.html << 'ENDOFFILE'
                 <label for="role" class="form-label">Роль *</label>
                 <select class="form-select" id="role" name="role" required>
                     <option value="">— Выберите —</option>
+                    {% if user and user.role == 'admin' %}
+                    <option value="admin" selected>Администратор</option>
+                    {% endif %}
                     <option value="head" {% if user and user.role=='head' %}selected{% endif %}>Заведующий</option>
                     <option value="head_nurse" {% if user and user.role=='head_nurse' %}selected{% endif %}>Старшая медсестра</option>
                     <option value="doctor_storekeeper" {% if user and user.role=='doctor_storekeeper' %}selected{% endif %}>Врач-кладовщик</option>
@@ -42,4 +44,3 @@ cat > templates/admin_user_form.html << 'ENDOFFILE'
     </div>
 </div>
 {% endblock %}
-ENDOFFILE
