@@ -1,10 +1,11 @@
 import os
 import json
-from flask import Flask, render_template, redirect, url_for, flash, request
+from flask import Flask, render_template, redirect, url_for, flash, request, send_file
 from config import Config
 from models import db, User, Material, Batch, Location, Transaction, Category, Transfer, TransferItem, TransferRequest, SpendingDraft, Revision
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import date, datetime
+from io import BytesIO
 
 login_manager = LoginManager()
 login_manager.login_view = 'login'
@@ -465,7 +466,6 @@ def create_app():
                 return redirect(url_for('operation_out'))
 
             if current_user.role in ('admin', 'head', 'doctor_storekeeper', 'doctor'):
-                # Прямое списание
                 for item in cart:
                     material = Material.query.get_or_404(int(item['id']))
                     qty = int(item['qty'])
@@ -493,7 +493,6 @@ def create_app():
                 db.session.commit()
                 flash(f'Расход по операции {operation_id}: {len(cart)} позиций!', 'success')
             else:
-                # Черновики
                 for item in cart:
                     draft = SpendingDraft(
                         user_id=current_user.id, material_id=int(item['id']),
@@ -754,7 +753,7 @@ def create_app():
         return render_template('transactions.html', transactions=transactions_list)
 
     # ──────────────────────────────────────────
-    # ВРЕМЕННЫЙ: СОЗДАНИЕ ТЕСТОВЫХ ПОЛЬЗОВАТЕЛЕЙ
+    # СОЗДАНИЕ ТЕСТОВЫХ ПОЛЬЗОВАТЕЛЕЙ
     # ──────────────────────────────────────────
     @app.route('/init-users')
     def init_users():
@@ -773,6 +772,95 @@ def create_app():
                 db.session.add(user)
         db.session.commit()
         return 'Пользователи созданы! <a href="/">Войти</a>'
+
+    # ──────────────────────────────────────────
+    # ЭКСПОРТ В EXCEL
+    # ──────────────────────────────────────────
+    @app.route('/export/excel')
+    @login_required
+    def export_excel():
+        if not current_user.can_reports():
+            flash('Недостаточно прав для экспорта.', 'danger')
+            return redirect(url_for('index'))
+
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Остатки на складах"
+
+        headers = ['Наименование', 'Размер', 'Категория', 'Штрихкод', 'Партия',
+                   'Локация', 'Срок годности', 'Приход', 'Расход', 'Остаток', 'Статус']
+        header_fill = PatternFill(start_color='0d6efd', end_color='0d6efd', fill_type='solid')
+        header_font = Font(color='FFFFFF', bold=True, size=12)
+        thin_border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border = thin_border
+
+        today = date.today()
+        batches = Batch.query.filter(Batch.is_active == True).order_by(Batch.expiry_date.asc()).all()
+        row = 2
+        red_fill = PatternFill(start_color='ffe0e0', end_color='ffe0e0', fill_type='solid')
+        yellow_fill = PatternFill(start_color='fff3cd', end_color='fff3cd', fill_type='solid')
+
+        for b in batches:
+            remaining = b.remaining
+            if remaining == 0 and b.quantity == 0:
+                continue
+            status = 'Активен'
+            fill = None
+            if b.expiry_date and b.expiry_date < today:
+                status = 'Просрочен'
+                fill = red_fill
+            elif b.expiry_date and (b.expiry_date - today).days <= 90:
+                status = 'Истекает'
+                fill = yellow_fill
+
+            data = [
+                b.material.name,
+                b.material.size or '',
+                b.material.category_name or '',
+                b.material.barcode or '',
+                b.batch_number or '',
+                b.location.code if b.location else '',
+                b.expiry_date.strftime('%d.%m.%Y') if b.expiry_date else '',
+                b.quantity,
+                b.used,
+                remaining,
+                status,
+            ]
+            for col, value in enumerate(data, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.border = thin_border
+                if fill:
+                    cell.fill = fill
+            row += 1
+
+        for col in ws.columns:
+            max_length = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = min(max_length + 2, 40)
+
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        filename = f'Остатки_на_складах_{today.strftime("%d.%m.%Y")}.xlsx'
+        return send_file(output, download_name=filename,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                         as_attachment=True)
 
     return app
 
