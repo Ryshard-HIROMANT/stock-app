@@ -21,9 +21,7 @@
         @media (max-width: 768px) {
             body { padding-top: 56px; }
             .navbar-brand { font-size: 1rem; }
-            .btn-lg { font-size: 0.9rem; padding: 8px 16px; }
             h1 { font-size: 1.3rem; }
-            .card-title { font-size: 1.5rem; }
         }
     </style>
 </head>
@@ -37,51 +35,85 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item"><a class="nav-link" href="/"><i class="bi bi-speedometer2"></i> Дашборд</a></li>
-                    {% if current_user.is_authenticated and current_user.is_admin() %}
-                    <li class="nav-item"><a class="nav-link" href="/admin/users"><i class="bi bi-people"></i> Пользователи</a></li>
-                    {% endif %}
+                    
                     {% if current_user.is_authenticated %}
-                    <li class="nav-item"><a class="nav-link" href="/materials"><i class="bi bi-box"></i> Материалы</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/categories"><i class="bi bi-tags"></i> Категории</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/locations"><i class="bi bi-geo-alt"></i> Локации</a></li>
-                    {% if current_user.is_storekeeper() %}
-                    <li class="nav-item"><a class="nav-link" href="/transfers"><i class="bi bi-arrow-left-right"></i> Перемещения</a></li>
+                    <!-- Справочники -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-journal-bookmark"></i> Справочники
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-dark">
+                            <li><a class="dropdown-item" href="/materials"><i class="bi bi-box"></i> Материалы</a></li>
+                            <li><a class="dropdown-item" href="/categories"><i class="bi bi-tags"></i> Категории</a></li>
+                            <li><a class="dropdown-item" href="/locations"><i class="bi bi-geo-alt"></i> Локации</a></li>
+                        </ul>
+                    </li>
+                    
+                    <!-- Складские операции -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-boxes"></i> Операции
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-dark">
+                            {% if current_user.is_storekeeper() %}
+                            <li><a class="dropdown-item" href="/operations/in"><i class="bi bi-box-arrow-in-down"></i> Приход</a></li>
+                            {% endif %}
+                            {% if current_user.can_create_draft() %}
+                            <li><a class="dropdown-item" href="/operations/out"><i class="bi bi-box-arrow-up"></i> Расход</a></li>
+                            {% endif %}
+                            {% if current_user.is_storekeeper() %}
+                            <li><a class="dropdown-item" href="/transfers"><i class="bi bi-arrow-left-right"></i> Перемещения</a></li>
+                            {% endif %}
+                            {% if current_user.can_revision() %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/revision"><i class="bi bi-clipboard-check"></i> Ревизия</a></li>
+                            {% endif %}
+                        </ul>
+                    </li>
+                    
+                    <!-- Заявки и подтверждения -->
+                    {% if current_user.can_create_request() or current_user.can_confirm() %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-send-check"></i> Заявки
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-dark">
+                            {% if current_user.can_create_request() or current_user.can_process_requests() %}
+                            <li><a class="dropdown-item" href="/requests"><i class="bi bi-send"></i> Заявки на перемещение</a></li>
+                            {% endif %}
+                            {% if current_user.can_confirm() %}
+                            <li><a class="dropdown-item" href="/spending/confirm"><i class="bi bi-check-circle"></i> Подтверждение списаний</a></li>
+                            {% endif %}
+                        </ul>
+                    </li>
                     {% endif %}
-                    {% if current_user.can_revision() %}
-                    <li class="nav-item"><a class="nav-link" href="/revision"><i class="bi bi-clipboard-check"></i> Ревизия</a></li>
-                    {% endif %}
-                    {% if current_user.can_create_request() or current_user.can_process_requests() %}
-                    <li class="nav-item"><a class="nav-link" href="/requests"><i class="bi bi-send"></i> Заявки</a></li>
-                    {% endif %}
+                    
                     <li class="nav-item"><a class="nav-link" href="/scanner"><i class="bi bi-camera"></i> Сканер</a></li>
-                    {% if current_user.is_storekeeper() %}
-                    <li class="nav-item"><a class="nav-link" href="/operations/in"><i class="bi bi-box-arrow-in-down"></i> Приход</a></li>
-                    {% endif %}
-                    {% if current_user.can_create_draft() %}
-                    <li class="nav-item"><a class="nav-link" href="/operations/out"><i class="bi bi-box-arrow-up"></i> Расход</a></li>
-                    {% endif %}
-                    {% if current_user.can_confirm() %}
-                    <li class="nav-item"><a class="nav-link" href="/spending/confirm"><i class="bi bi-check-circle"></i> Подтверждение</a></li>
-                    {% endif %}
                     <li class="nav-item"><a class="nav-link" href="/transactions"><i class="bi bi-journal-text"></i> Журнал</a></li>
-                    {% endif %}
+                    
                     {% if current_user.can_reports() %}
                     <li class="nav-item"><a class="nav-link" href="/analytics"><i class="bi bi-graph-up"></i> Аналитика</a></li>
                     {% endif %}
+                    
+                    {% if current_user.is_admin() %}
+                    <li class="nav-item"><a class="nav-link" href="/admin/users"><i class="bi bi-people"></i> Пользователи</a></li>
+                    {% endif %}
+                    {% endif %}
                 </ul>
+                
                 {% if current_user.is_authenticated %}
                 <span class="navbar-text text-light me-2">
                     <i class="bi bi-person-circle"></i>
                     <span class="d-none d-md-inline">{{ current_user.full_name or current_user.username }}</span>
                     {% if current_user.is_admin() %}<span class="badge bg-danger">Админ</span>
-                    {% elif current_user.role == 'head' %}<span class="badge bg-info text-dark">Заведующий</span>
-                    {% elif current_user.role == 'head_nurse' %}<span class="badge bg-warning text-dark">Ст.медсестра</span>
-                    {% elif current_user.role == 'doctor_storekeeper' %}<span class="badge bg-primary">Врач-склад</span>
+                    {% elif current_user.role == 'head' %}<span class="badge bg-info text-dark">Зав</span>
+                    {% elif current_user.role == 'head_nurse' %}<span class="badge bg-warning text-dark">Ст.м/с</span>
+                    {% elif current_user.role == 'doctor_storekeeper' %}<span class="badge bg-primary">Врач-скл</span>
                     {% elif current_user.role == 'doctor' %}<span class="badge bg-success">Врач</span>
-                    {% elif current_user.role == 'xray_lab' %}<span class="badge bg-secondary">Лаборант</span>
+                    {% elif current_user.role == 'xray_lab' %}<span class="badge bg-secondary">Лаб</span>
                     {% endif %}
                 </span>
-                <a href="/logout" class="btn btn-outline-light btn-sm"><i class="bi bi-box-arrow-right"></i></a>
+                <a href="/logout" class="btn btn-outline-light btn-sm"><i class="bi bi-box-arrow-right"></i> Выйти</a>
                 {% else %}
                 <a href="/login" class="btn btn-outline-light btn-sm"><i class="bi bi-box-arrow-in-right"></i> Войти</a>
                 {% endif %}
