@@ -1,4 +1,5 @@
 import os
+import json
 from flask import Flask, render_template, redirect, url_for, flash, request
 from config import Config
 from models import db, User, Material, Batch, Location, Transaction, Category, Transfer, TransferItem, TransferRequest, SpendingDraft, Revision
@@ -443,7 +444,7 @@ def create_app():
                                categories=categories_list, selected_material=None)
 
     # ──────────────────────────────────────────
-    # РАСХОД
+    # РАСХОД (с корзиной)
     # ──────────────────────────────────────────
     @app.route('/operations/out', methods=['GET', 'POST'])
     @login_required
@@ -451,53 +452,64 @@ def create_app():
         if not current_user.can_create_draft():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
+
         if request.method == 'POST':
-            mat_id = request.form.get('material_id')
-            qty = int(request.form.get('quantity', 0))
-            note = request.form.get('note', '').strip()
             operation_id = request.form.get('operation_id', '').strip()
             doctor_name = request.form.get('doctor_name', '').strip()
-            if not mat_id or qty <= 0:
-                flash('Выберите материал и укажите количество.', 'danger')
+            note = request.form.get('note', '').strip()
+            cart_data = request.form.get('cart_data', '[]')
+            cart = json.loads(cart_data)
+
+            if not cart or not operation_id or not doctor_name:
+                flash('Заполните все обязательные поля.', 'danger')
                 return redirect(url_for('operation_out'))
+
             if current_user.role in ('admin', 'head', 'doctor_storekeeper', 'doctor'):
-                material = Material.query.get_or_404(mat_id)
-                batches = Batch.query.filter(
-                    Batch.material_id == material.id, Batch.is_active == True,
-                    Batch.quantity - Batch.used > 0
-                ).order_by(Batch.expiry_date.asc()).all()
-                total_available = sum(b.remaining for b in batches)
-                if qty > total_available:
-                    flash(f'Недостаточно! Доступно: {total_available} шт.', 'danger')
-                    return redirect(url_for('operation_out'))
-                remaining_to_take = qty
-                for batch in batches:
-                    if remaining_to_take <= 0:
-                        break
-                    take = min(batch.remaining, remaining_to_take)
-                    batch.used += take
-                    remaining_to_take -= take
-                    t_type = 'reusable_out' if material.is_reusable else 'out'
-                    db.session.add(Transaction(
-                        user_id=current_user.id, batch_id=batch.id, type=t_type,
-                        quantity=take, operation_id=operation_id, doctor_name=doctor_name,
-                        note=note or f'Расход "{material.name}"'
-                    ))
+                # Прямое списание
+                for item in cart:
+                    material = Material.query.get_or_404(int(item['id']))
+                    qty = int(item['qty'])
+                    batches = Batch.query.filter(
+                        Batch.material_id == material.id, Batch.is_active == True,
+                        Batch.quantity - Batch.used > 0
+                    ).order_by(Batch.expiry_date.asc()).all()
+                    total_available = sum(b.remaining for b in batches)
+                    if qty > total_available:
+                        flash(f'Недостаточно "{material.name}"! Доступно: {total_available} шт.', 'danger')
+                        return redirect(url_for('operation_out'))
+                    remaining_to_take = qty
+                    for batch in batches:
+                        if remaining_to_take <= 0:
+                            break
+                        take = min(batch.remaining, remaining_to_take)
+                        batch.used += take
+                        remaining_to_take -= take
+                        t_type = 'reusable_out' if material.is_reusable else 'out'
+                        db.session.add(Transaction(
+                            user_id=current_user.id, batch_id=batch.id, type=t_type,
+                            quantity=take, operation_id=operation_id, doctor_name=doctor_name,
+                            note=note or f'Расход "{material.name}"'
+                        ))
                 db.session.commit()
-                flash(f'Расход: {material.name} — {qty} шт.!', 'success')
+                flash(f'Расход по операции {operation_id}: {len(cart)} позиций!', 'success')
             else:
-                draft = SpendingDraft(
-                    user_id=current_user.id, material_id=int(mat_id),
-                    quantity=qty, operation_id=operation_id, doctor_name=doctor_name, note=note
-                )
-                db.session.add(draft)
+                # Черновики
+                for item in cart:
+                    draft = SpendingDraft(
+                        user_id=current_user.id, material_id=int(item['id']),
+                        quantity=int(item['qty']), operation_id=operation_id,
+                        doctor_name=doctor_name, note=note
+                    )
+                    db.session.add(draft)
                 db.session.commit()
-                flash('Черновик списания создан. Ожидает подтверждения врачом.', 'info')
+                flash(f'Черновик по операции {operation_id}: {len(cart)} позиций. Ожидает врача.', 'info')
+
             return redirect(url_for('index'))
+
         materials_list = Material.query.order_by(Material.name).all()
         categories_list = Category.query.order_by(Category.name).all()
         return render_template('operation_out.html',
-                               materials=materials_list, categories=categories_list, selected_material=None)
+                               materials=materials_list, categories=categories_list)
 
     # ──────────────────────────────────────────
     # ПОДТВЕРЖДЕНИЕ СПИСАНИЙ
@@ -761,8 +773,9 @@ def create_app():
                 db.session.add(user)
         db.session.commit()
         return 'Пользователи созданы! <a href="/">Войти</a>'
-    
+
     return app
+
 
 if __name__ == '__main__':
     app = create_app()
