@@ -1,0 +1,45 @@
+cat > templates/admin_user_form.html << 'ENDOFFILE'
+{% extends "base.html" %}
+{% block title %}{{ 'Редактировать' if user else 'Добавить' }} пользователя — Админ{% endblock %}
+{% block content %}
+<h1>{{ 'Редактировать' if user else 'Добавить' }} пользователя</h1>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST">
+            <div class="mb-3">
+                <label for="username" class="form-label">Логин *</label>
+                <input type="text" class="form-control" id="username" name="username" value="{{ user.username if user else '' }}" required>
+            </div>
+            <div class="mb-3">
+                <label for="password" class="form-label">Пароль {{ ' (оставьте пустым, чтобы не менять)' if user else '*' }}</label>
+                <input type="text" class="form-control" id="password" name="password" {{ '' if user else 'required' }}>
+            </div>
+            <div class="mb-3">
+                <label for="full_name" class="form-label">ФИО</label>
+                <input type="text" class="form-control" id="full_name" name="full_name" value="{{ user.full_name if user else '' }}">
+            </div>
+            <div class="mb-3">
+                <label for="role" class="form-label">Роль *</label>
+                <select class="form-select" id="role" name="role" required>
+                    <option value="">— Выберите —</option>
+                    <option value="head" {% if user and user.role=='head' %}selected{% endif %}>Заведующий</option>
+                    <option value="head_nurse" {% if user and user.role=='head_nurse' %}selected{% endif %}>Старшая медсестра</option>
+                    <option value="doctor_storekeeper" {% if user and user.role=='doctor_storekeeper' %}selected{% endif %}>Врач-кладовщик</option>
+                    <option value="doctor" {% if user and user.role=='doctor' %}selected{% endif %}>Врач</option>
+                    <option value="xray_lab" {% if user and user.role=='xray_lab' %}selected{% endif %}>Рентгенлаборант</option>
+                </select>
+            </div>
+            {% if user %}
+            <div class="mb-3 form-check">
+                <input type="checkbox" class="form-check-input" id="is_active" name="is_active" value="1" {% if user.is_active %}checked{% endif %}>
+                <label for="is_active" class="form-check-label">Активен</label>
+            </div>
+            {% endif %}
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Сохранить</button>
+            <a href="/admin/users" class="btn btn-secondary">Отмена</a>
+        </form>
+    </div>
+</div>
+{% endblock %}
+ENDOFFILE

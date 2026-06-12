@@ -898,6 +898,83 @@ def create_app():
         return send_file(output, download_name=filename,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                          as_attachment=True)
+    # ──────────────────────────────────────────
+    # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ (админ)
+    # ──────────────────────────────────────────
+    @app.route('/admin/users')
+    @login_required
+    def admin_users():
+        if not current_user.is_admin():
+            flash('Только для администратора.', 'danger')
+            return redirect(url_for('index'))
+        users = User.query.order_by(User.role, User.username).all()
+        return render_template('admin_users.html', users=users)
+
+    @app.route('/admin/users/add', methods=['GET', 'POST'])
+    @login_required
+    def admin_user_add():
+        if not current_user.is_admin():
+            flash('Только для администратора.', 'danger')
+            return redirect(url_for('index'))
+        if request.method == 'POST':
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '').strip()
+            full_name = request.form.get('full_name', '').strip()
+            role = request.form.get('role', '').strip()
+            if not username or not password or not role:
+                flash('Логин, пароль и роль обязательны!', 'danger')
+                return render_template('admin_user_form.html', user=None)
+            if User.query.filter_by(username=username).first():
+                flash(f'Логин "{username}" уже занят!', 'danger')
+                return render_template('admin_user_form.html', user=None)
+            user = User(username=username, full_name=full_name, role=role)
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            flash(f'Пользователь "{username}" создан!', 'success')
+            return redirect(url_for('admin_users'))
+        return render_template('admin_user_form.html', user=None)
+
+    @app.route('/admin/users/<int:id>/edit', methods=['GET', 'POST'])
+    @login_required
+    def admin_user_edit(id):
+        if not current_user.is_admin():
+            flash('Только для администратора.', 'danger')
+            return redirect(url_for('index'))
+        user = User.query.get_or_404(id)
+        if request.method == 'POST':
+            new_username = request.form.get('username', '').strip()
+            existing = User.query.filter(User.username == new_username, User.id != id).first()
+            if existing:
+                flash(f'Логин "{new_username}" уже занят!', 'danger')
+                return render_template('admin_user_form.html', user=user)
+            user.username = new_username
+            user.full_name = request.form.get('full_name', '').strip()
+            user.role = request.form.get('role', '').strip()
+            password = request.form.get('password', '').strip()
+            if password:
+                user.set_password(password)
+            user.is_active = request.form.get('is_active') == '1'
+            db.session.commit()
+            flash(f'Пользователь "{user.username}" обновлён!', 'success')
+            return redirect(url_for('admin_users'))
+        return render_template('admin_user_form.html', user=user)
+
+    @app.route('/admin/users/<int:id>/delete', methods=['POST'])
+    @login_required
+    def admin_user_delete(id):
+        if not current_user.is_admin():
+            flash('Только для администратора.', 'danger')
+            return redirect(url_for('index'))
+        if id == current_user.id:
+            flash('Нельзя удалить самого себя!', 'danger')
+            return redirect(url_for('admin_users'))
+        user = User.query.get_or_404(id)
+        username = user.username
+        db.session.delete(user)
+        db.session.commit()
+        flash(f'Пользователь "{username}" удалён.', 'info')
+        return redirect(url_for('admin_users'))
     
     return app
 
