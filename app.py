@@ -975,6 +975,17 @@ def create_app():
         db.session.commit()
         flash(f'Пользователь "{username}" удалён.', 'info')
         return redirect(url_for('admin_users'))
+    # ──────────────────────────────────────────
+    # API: список врачей
+    # ──────────────────────────────────────────
+    @app.route('/api/doctors')
+    @login_required
+    def api_doctors():
+        doctors = User.query.filter(
+            User.role.in_(['doctor', 'doctor_storekeeper', 'head']),
+            User.is_active == True
+        ).order_by(User.full_name).all()
+        return [{'id': u.id, 'name': u.full_name or u.username} for u in doctors]
     
     return app
 

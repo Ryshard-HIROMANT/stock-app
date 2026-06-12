@@ -12,9 +12,11 @@
                 <label for="operation_id" class="form-label">ID операции *</label>
                 <input type="text" class="form-control" id="operation_id" placeholder="Номер или код операции" required>
             </div>
-            <div class="col-md-4">
-                <label for="doctor_name" class="form-label">ФИО врача *</label>
-                <input type="text" class="form-control" id="doctor_name" placeholder="Врач-оператор" required>
+                <div class="col-md-4">
+                <label for="doctor_name" class="form-label">Врач *</label>
+                <select class="form-select" id="doctor_name" required>
+                    <option value="">— Выберите врача —</option>
+                </select>
             </div>
             <div class="col-md-4">
                 <label for="note" class="form-label">Общее примечание</label>
@@ -219,5 +221,14 @@ document.getElementById('submitOutBtn').addEventListener('click', function() {
     document.body.appendChild(form);
     form.submit();
 });
+// Загружаем список врачей
+fetch('/api/doctors')
+    .then(r => r.json())
+    .then(doctors => {
+        const select = document.getElementById('doctor_name');
+        doctors.forEach(d => {
+            select.innerHTML += `<option value="${d.name}">${d.name}</option>`;
+        });
+    });
 </script>
 {% endblock %}
