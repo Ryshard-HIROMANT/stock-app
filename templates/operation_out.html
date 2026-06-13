@@ -12,7 +12,7 @@
                 <label for="operation_id" class="form-label">ID операции *</label>
                 <input type="text" class="form-control" id="operation_id" placeholder="Номер или код операции" required>
             </div>
-                <div class="col-md-4">
+            <div class="col-md-4">
                 <label for="doctor_name" class="form-label">Врач *</label>
                 <select class="form-select" id="doctor_name" required>
                     <option value="">— Выберите врача —</option>
@@ -26,7 +26,6 @@
     </div>
 </div>
 
-<!-- Добавление позиции -->
 <div class="card mb-3">
     <div class="card-header bg-light">
         <h6 class="mb-0"><i class="bi bi-plus-circle"></i> Добавить материал</h6>
@@ -65,7 +64,6 @@
                 </button>
             </div>
         </div>
-        <!-- Сканер -->
         <div id="scannerContainer" style="display:none; margin-top: 10px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
             <div id="miniScanner" style="width: 100%; max-width: 100%; margin: 0 auto;"></div>
             <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopScannerBtn">
@@ -75,24 +73,20 @@
     </div>
 </div>
 
-<!-- Корзина -->
 <div class="card mb-3">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
         <h6 class="mb-0"><i class="bi bi-cart"></i> Корзина (<span id="cartCount">0</span> позиций)</h6>
     </div>
     <div class="card-body table-responsive" id="cartContainer">
         <table class="table table-sm align-middle" id="cartTable">
-            <thead>
-                <tr><th>Материал</th><th>Кол-во</th><th></th></tr>
-            </thead>
+            <thead><tr><th>Материал</th><th>Кол-во</th><th></th></tr></thead>
             <tbody id="cartBody">
-                <tr id="cartEmpty"><td colspan="3" class="text-center text-muted">Корзина пуста — добавьте материалы</td></tr>
+                <tr id="cartEmpty"><td colspan="3" class="text-center text-muted">Корзина пуста</td></tr>
             </tbody>
         </table>
     </div>
 </div>
 
-<!-- Кнопка списания -->
 <button type="button" class="btn btn-danger btn-lg w-100" id="submitOutBtn" disabled>
     <i class="bi bi-check-circle"></i>
     {% if current_user.role in ('admin', 'head', 'doctor_storekeeper', 'doctor') %}
@@ -114,7 +108,6 @@
 let cart = [];
 const allOptions = Array.from(document.getElementById('material_select').options);
 
-// Фильтр по категории
 document.getElementById('category_filter').addEventListener('change', function() {
     const cat = this.value;
     const select = document.getElementById('material_select');
@@ -125,31 +118,25 @@ document.getElementById('category_filter').addEventListener('change', function()
     });
 });
 
-// Добавить в корзину
 document.getElementById('addToCartBtn').addEventListener('click', function() {
     const select = document.getElementById('material_select');
     const qty = parseInt(document.getElementById('item_quantity').value) || 1;
     if (!select.value) { alert('Выберите материал!'); return; }
     const id = select.value;
     const name = select.options[select.selectedIndex].dataset.name;
-    // Проверить, нет ли уже такого
     const existing = cart.find(item => item.id === id);
-    if (existing) {
-        existing.qty += qty;
-    } else {
-        cart.push({ id: id, name: name, qty: qty });
-    }
+    if (existing) { existing.qty += qty; }
+    else { cart.push({ id: id, name: name, qty: qty }); }
     document.getElementById('item_quantity').value = 1;
     renderCart();
 });
 
-// Сканер
 let scanner = null;
 document.getElementById('scanBtn').addEventListener('click', function() {
     document.getElementById('scannerContainer').style.display = 'block';
     this.disabled = true;
     scanner = new Html5Qrcode("miniScanner");
-        scanner.start(
+    scanner.start(
         { facingMode: "environment" }, 
         { 
             fps: 10, 
@@ -161,9 +148,7 @@ document.getElementById('scanBtn').addEventListener('click', function() {
                 Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.CODE_39,
             ],
-            experimentalFeatures: {
-                useBarCodeDetectorIfSupported: true,
-            },
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
         },
         (decodedText) => {
             stopScanner();
@@ -172,9 +157,7 @@ document.getElementById('scanBtn').addEventListener('click', function() {
                     if (data.found) {
                         document.getElementById('material_select').value = data.material.id;
                         document.getElementById('item_quantity').focus();
-                    } else {
-                        alert('Материал не найден!');
-                    }
+                    } else { alert('Материал не найден!'); }
                 });
         }, 
         () => {}
@@ -183,46 +166,41 @@ document.getElementById('scanBtn').addEventListener('click', function() {
         document.getElementById('scannerContainer').style.display = 'none';
         document.getElementById('scanBtn').disabled = false;
     });
+});
 
-// Отрисовка корзины
+document.getElementById('stopScannerBtn').addEventListener('click', stopScanner);
+
+function stopScanner() {
+    if (scanner) { scanner.stop(); scanner = null; }
+    document.getElementById('scannerContainer').style.display = 'none';
+    document.getElementById('scanBtn').disabled = false;
+}
+
 function renderCart() {
     const tbody = document.getElementById('cartBody');
-    const empty = document.getElementById('cartEmpty');
     document.getElementById('cartCount').textContent = cart.length;
     document.getElementById('submitOutBtn').disabled = cart.length === 0;
-
     if (cart.length === 0) {
-        tbody.innerHTML = '';
-        tbody.appendChild(empty);
+        tbody.innerHTML = '<tr id="cartEmpty"><td colspan="3" class="text-center text-muted">Корзина пуста</td></tr>';
         return;
     }
     tbody.innerHTML = cart.map((item, i) => `
         <tr>
             <td>${item.name}</td>
-            <td><input type="number" class="form-control form-control-sm" style="width:80px" value="${item.qty}" min="1"
-                       onchange="updateQty(${i}, this.value)"></td>
+            <td><input type="number" class="form-control form-control-sm" style="width:80px" value="${item.qty}" min="1" onchange="updateQty(${i}, this.value)"></td>
             <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeItem(${i})"><i class="bi bi-trash"></i></button></td>
         </tr>
     `).join('');
 }
 
-function updateQty(i, val) {
-    const qty = parseInt(val) || 1;
-    cart[i].qty = qty;
-}
+function updateQty(i, val) { cart[i].qty = parseInt(val) || 1; }
+function removeItem(i) { cart.splice(i, 1); renderCart(); }
 
-function removeItem(i) {
-    cart.splice(i, 1);
-    renderCart();
-}
-
-// Отправка
 document.getElementById('submitOutBtn').addEventListener('click', function() {
     const operation_id = document.getElementById('operation_id').value.trim();
-    const doctor_name = document.getElementById('doctor_name').value.trim();
-    if (!operation_id || !doctor_name) { alert('Заполните ID операции и ФИО врача!'); return; }
+    const doctor_name = document.getElementById('doctor_name').value;
+    if (!operation_id || !doctor_name) { alert('Заполните ID операции и выберите врача!'); return; }
     if (cart.length === 0) { alert('Корзина пуста!'); return; }
-
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/operations/out';
@@ -235,7 +213,7 @@ document.getElementById('submitOutBtn').addEventListener('click', function() {
     document.body.appendChild(form);
     form.submit();
 });
-// Загружаем список врачей
+
 fetch('/api/doctors')
     .then(r => r.json())
     .then(doctors => {

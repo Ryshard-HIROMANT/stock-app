@@ -29,14 +29,14 @@
                 <div class="input-group">
                     <input type="text" class="form-control" id="barcode" name="barcode"
                            value="{{ material.barcode if material else '' }}" placeholder="Введите или отсканируйте">
-                    <button type="button" class="btn btn-outline-primary" id="scanBarcodeBtn" title="Сканировать штрихкод">
+                    <button type="button" class="btn btn-outline-primary" id="scanBarcodeBtn" title="Сканировать">
                         <i class="bi bi-camera"></i>
                     </button>
                 </div>
                 <div id="barcodeScannerContainer" style="display:none; margin-top: 10px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
                     <div id="barcodeMiniScanner" style="width: 100%; max-width: 100%; margin: 0 auto;"></div>
                     <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopBarcodeScannerBtn">
-                        <i class="bi bi-stop-circle"></i> Остановить сканер
+                        <i class="bi bi-stop-circle"></i> Остановить
                     </button>
                 </div>
             </div>
@@ -80,10 +80,8 @@ const barcodeInput = document.getElementById('barcode');
 scanBtn.addEventListener('click', function() {
     scannerContainer.style.display = 'block';
     scanBtn.disabled = true;
-
     barcodeScanner = new Html5Qrcode("barcodeMiniScanner");
-
-        barcodeScanner.start(
+    barcodeScanner.start(
         { facingMode: "environment" },
         { 
             fps: 10, 
@@ -95,9 +93,7 @@ scanBtn.addEventListener('click', function() {
                 Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.CODE_39,
             ],
-            experimentalFeatures: {
-                useBarCodeDetectorIfSupported: true,
-            },
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
         },
         (decodedText) => {
             barcodeInput.value = decodedText;
@@ -106,14 +102,13 @@ scanBtn.addEventListener('click', function() {
         },
         () => {}
     ).catch(err => {
-        alert('Ошибка доступа к камере: ' + err.message);
+        alert('Ошибка камеры: ' + err.message);
         scannerContainer.style.display = 'none';
         scanBtn.disabled = false;
     });
-
-stopBtn.addEventListener('click', function() {
-    stopBarcodeScanner();
 });
+
+stopBtn.addEventListener('click', stopBarcodeScanner);
 
 function stopBarcodeScanner() {
     if (barcodeScanner) {

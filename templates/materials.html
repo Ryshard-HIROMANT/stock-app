@@ -40,7 +40,6 @@
             </select>
         </div>
     </div>
-    <!-- Мини-сканер -->
     <div id="searchScannerContainer" style="display:none; margin-top: 10px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
         <div id="searchMiniScanner" style="width: 100%; max-width: 100%; margin: 0 auto;"></div>
         <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopSearchScannerBtn">
@@ -80,7 +79,7 @@
                         {% endif %}
                         {% if current_user.is_admin() %}
                         <form method="POST" action="/materials/{{ m.id }}/delete" style="display:inline;"
-                              onsubmit="return confirm('Удалить материал «{{ m.name }}»? Это также удалит все связанные партии и операции!')">
+                              onsubmit="return confirm('Удалить материал «{{ m.name }}»?')">
                             <button type="submit" class="btn btn-sm btn-danger" title="Удалить">
                                 <i class="bi bi-trash"></i>
                             </button>
@@ -89,9 +88,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr>
-                    <td colspan="7" class="text-center text-muted">Материалы не найдены</td>
-                </tr>
+                <tr><td colspan="7" class="text-center text-muted">Материалы не найдены</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -101,9 +98,6 @@
 
 {% block scripts %}
 <script>
-// ──────────────────────────────────────────
-// СКАНЕР В ПОИСКОВОЙ СТРОКЕ
-// ──────────────────────────────────────────
 let searchScanner = null;
 const scanSearchBtn = document.getElementById('scanSearchBtn');
 const stopSearchBtn = document.getElementById('stopSearchScannerBtn');
@@ -113,10 +107,8 @@ const searchInput = document.getElementById('searchInput');
 scanSearchBtn.addEventListener('click', function() {
     scannerContainer.style.display = 'block';
     scanSearchBtn.disabled = true;
-
     searchScanner = new Html5Qrcode("searchMiniScanner");
-
-        searchScanner.start(
+    searchScanner.start(
         { facingMode: "environment" },
         { 
             fps: 10, 
@@ -128,9 +120,7 @@ scanSearchBtn.addEventListener('click', function() {
                 Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.CODE_39,
             ],
-            experimentalFeatures: {
-                useBarCodeDetectorIfSupported: true,
-            },
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
         },
         (decodedText) => {
             flashBorder('green');
@@ -140,14 +130,13 @@ scanSearchBtn.addEventListener('click', function() {
         },
         () => {}
     ).catch(err => {
-        alert('Ошибка доступа к камере: ' + err.message);
+        alert('Ошибка камеры: ' + err.message);
         scannerContainer.style.display = 'none';
         scanSearchBtn.disabled = false;
     });
-
-stopSearchBtn.addEventListener('click', function() {
-    stopSearchScanner();
 });
+
+stopSearchBtn.addEventListener('click', stopSearchScanner);
 
 function stopSearchScanner() {
     if (searchScanner) {
@@ -165,9 +154,7 @@ function stopSearchScanner() {
 
 function flashBorder(color) {
     scannerContainer.style.borderColor = color;
-    setTimeout(() => {
-        scannerContainer.style.borderColor = '#ccc';
-    }, 1000);
+    setTimeout(() => { scannerContainer.style.borderColor = '#ccc'; }, 1000);
 }
 </script>
 {% endblock %}
