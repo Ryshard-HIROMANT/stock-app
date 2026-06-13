@@ -46,17 +46,7 @@ function startScanner() {
     html5QrCode = new Html5Qrcode("reader");
     html5QrCode.start(
         { facingMode: "environment" },
-        {
-            fps: 10,
-            qrbox: { width: 350, height: 250 },
-            formatsToSupport: [
-                Html5QrcodeSupportedFormats.DATA_MATRIX,
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39,
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.QR_CODE,
-            ],
-        },
+        { fps: 10, qrbox: { width: 250, height: 150 } },
         onScanSuccess,
         onScanError
     ).catch(err => {
@@ -71,6 +61,7 @@ function onScanSuccess(decodedText, decodedResult) {
             .then(data => {
                 if (data.found) {
                     document.getElementById('result').classList.remove('d-none');
+                    document.getElementById('not-found').classList.add('d-none');
                     document.getElementById('result-content').innerHTML = `
                         <div class="card bg-light">
                             <div class="card-body">
@@ -91,6 +82,7 @@ function onScanSuccess(decodedText, decodedResult) {
                         </div>
                     `;
                 } else {
+                    document.getElementById('result').classList.add('d-none');
                     document.getElementById('not-found').classList.remove('d-none');
                     document.getElementById('scanned-code').textContent = decodedText;
                 }
@@ -98,9 +90,7 @@ function onScanSuccess(decodedText, decodedResult) {
     }).catch(err => console.error("Ошибка остановки:", err));
 }
 
-function onScanError(errorMessage) {
-    // игнорируем
-}
+function onScanError(errorMessage) {}
 
 document.addEventListener('DOMContentLoaded', startScanner);
 </script>
