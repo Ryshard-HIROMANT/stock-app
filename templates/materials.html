@@ -116,19 +116,22 @@ scanSearchBtn.addEventListener('click', function() {
 
     searchScanner = new Html5Qrcode("searchMiniScanner");
 
-    searchScanner.start(
+        searchScanner.start(
         { facingMode: "environment" },
         { 
-    fps: 10, 
-    qrbox: { width: 350, height: 250 },
-    formatsToSupport: [
-        Html5QrcodeSupportedFormats.DATA_MATRIX,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.QR_CODE,
-    ],
-},
+            fps: 10, 
+            qrbox: { width: 350, height: 250 },
+            formatsToSupport: [
+                Html5QrcodeSupportedFormats.DATA_MATRIX,
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.QR_CODE,
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.CODE_39,
+            ],
+            experimentalFeatures: {
+                useBarCodeDetectorIfSupported: true,
+            },
+        },
         (decodedText) => {
             flashBorder('green');
             stopSearchScanner();
@@ -141,7 +144,6 @@ scanSearchBtn.addEventListener('click', function() {
         scannerContainer.style.display = 'none';
         scanSearchBtn.disabled = false;
     });
-});
 
 stopSearchBtn.addEventListener('click', function() {
     stopSearchScanner();

@@ -149,17 +149,22 @@ document.getElementById('scanBtn').addEventListener('click', function() {
     document.getElementById('scannerContainer').style.display = 'block';
     this.disabled = true;
     scanner = new Html5Qrcode("miniScanner");
-    scanner.start({ facingMode: "environment" }, { 
-    fps: 10, 
-    qrbox: { width: 350, height: 250 },
-    formatsToSupport: [
-        Html5QrcodeSupportedFormats.DATA_MATRIX,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.QR_CODE,
-    ],
-},
+        scanner.start(
+        { facingMode: "environment" }, 
+        { 
+            fps: 10, 
+            qrbox: { width: 350, height: 250 },
+            formatsToSupport: [
+                Html5QrcodeSupportedFormats.DATA_MATRIX,
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.QR_CODE,
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.CODE_39,
+            ],
+            experimentalFeatures: {
+                useBarCodeDetectorIfSupported: true,
+            },
+        },
         (decodedText) => {
             stopScanner();
             fetch(`/api/material-by-barcode?barcode=${encodeURIComponent(decodedText)}`)
@@ -171,14 +176,13 @@ document.getElementById('scanBtn').addEventListener('click', function() {
                         alert('Материал не найден!');
                     }
                 });
-        }, () => {});
-});
-document.getElementById('stopScannerBtn').addEventListener('click', stopScanner);
-function stopScanner() {
-    if (scanner) { scanner.stop(); scanner = null; }
-    document.getElementById('scannerContainer').style.display = 'none';
-    document.getElementById('scanBtn').disabled = false;
-}
+        }, 
+        () => {}
+    ).catch(err => {
+        alert('Ошибка камеры: ' + err.message);
+        document.getElementById('scannerContainer').style.display = 'none';
+        document.getElementById('scanBtn').disabled = false;
+    });
 
 // Отрисовка корзины
 function renderCart() {

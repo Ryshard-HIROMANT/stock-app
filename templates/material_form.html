@@ -83,19 +83,22 @@ scanBtn.addEventListener('click', function() {
 
     barcodeScanner = new Html5Qrcode("barcodeMiniScanner");
 
-    barcodeScanner.start(
+        barcodeScanner.start(
         { facingMode: "environment" },
         { 
-    fps: 10, 
-    qrbox: { width: 350, height: 250 },
-    formatsToSupport: [
-        Html5QrcodeSupportedFormats.DATA_MATRIX,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.QR_CODE,
-    ],
-},
+            fps: 10, 
+            qrbox: { width: 350, height: 250 },
+            formatsToSupport: [
+                Html5QrcodeSupportedFormats.DATA_MATRIX,
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.QR_CODE,
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.CODE_39,
+            ],
+            experimentalFeatures: {
+                useBarCodeDetectorIfSupported: true,
+            },
+        },
         (decodedText) => {
             barcodeInput.value = decodedText;
             flashBorder('green');
@@ -107,7 +110,6 @@ scanBtn.addEventListener('click', function() {
         scannerContainer.style.display = 'none';
         scanBtn.disabled = false;
     });
-});
 
 stopBtn.addEventListener('click', function() {
     stopBarcodeScanner();
