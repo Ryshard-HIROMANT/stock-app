@@ -50,7 +50,7 @@
             </div>
             <!-- Мини-сканер -->
             <div id="scannerContainer" style="display:none; margin-bottom: 15px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
-                <div id="miniScanner" style="width: 100%; max-width: 300px; margin: 0 auto;"></div>
+                <div id="miniScanner" style="width: 100%; max-width: 100%; margin: 0 auto;"></div>
                 <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopScannerBtn">
                     <i class="bi bi-stop-circle"></i> Остановить сканер
                 </button>
@@ -166,17 +166,7 @@ scanBtn.addEventListener('click', function() {
     miniScanner = new Html5Qrcode("miniScanner");
     miniScanner.start(
         { facingMode: "environment" },
-        { 
-    fps: 10, 
-    qrbox: { width: 350, height: 250 },
-    formatsToSupport: [
-        Html5QrcodeSupportedFormats.DATA_MATRIX,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.QR_CODE,
-    ],
-},
+        { fps: 10, qrbox: { width: 300, height: 150 } },
         (decodedText) => {
             barcodeInput.value = decodedText;
             flashBorder('green');

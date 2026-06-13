@@ -45,10 +45,7 @@ let html5QrCode;
 function startScanner() {
     html5QrCode = new Html5Qrcode("reader");
     html5QrCode.start(
-        { 
-            facingMode: "environment",
-            advanced: [{ zoom: 2.0 }]
-        },
+        { facingMode: "environment" },
         {
             fps: 10,
             qrbox: { width: 350, height: 250 },
