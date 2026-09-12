@@ -533,6 +533,13 @@ def create_app():
                 flash('Заполните все обязательные поля.', 'danger')
                 return redirect(url_for('operation_out'))
 
+            # Удаляем старые rejected-черновики с этим operation_id у текущего пользователя
+            SpendingDraft.query.filter_by(
+                user_id=current_user.id,
+                operation_id=operation_id,
+                status='rejected'
+            ).delete()
+
             if current_user.role in ('admin', 'head', 'doctor_storekeeper', 'doctor'):
                 for item in cart:
                     material = Material.query.get_or_404(int(item['id']))
@@ -573,13 +580,39 @@ def create_app():
 
             return redirect(url_for('index'))
 
+        # GET: проверяем предзаполнение из отклонённого черновика
+        prefilled_operation = request.args.get('operation_id', '').strip()
+        prefilled_cart = []
+        prefilled_doctor = ''
+        prefilled_note = ''
+
+        if prefilled_operation:
+            rejected = SpendingDraft.query.filter_by(
+                user_id=current_user.id,
+                operation_id=prefilled_operation,
+                status='rejected'
+            ).all()
+            for d in rejected:
+                prefilled_cart.append({
+                    'id': str(d.material_id),
+                    'name': f'{d.material.name} {d.material.size or ""}'.strip(),
+                    'qty': d.quantity
+                })
+            if rejected:
+                prefilled_doctor = rejected[0].doctor_name or ''
+                prefilled_note = rejected[0].note or ''
+
         materials_list = Material.query.order_by(Material.name).all()
         categories_list = Category.query.order_by(Category.name).all()
         return render_template('operation_out.html',
-                               materials=materials_list, categories=categories_list)
+                               materials=materials_list, categories=categories_list,
+                               prefilled_operation=prefilled_operation,
+                               prefilled_cart=prefilled_cart,
+                               prefilled_doctor=prefilled_doctor,
+                               prefilled_note=prefilled_note)
 
     # ──────────────────────────────────────────
-    # ПОДТВЕРЖДЕНИЕ СПИСАНИЙ
+    # ПОДТВЕРЖДЕНИЕ СПИСАНИЙ (по операции)
     # ──────────────────────────────────────────
     @app.route('/spending/confirm')
     @login_required
@@ -587,58 +620,133 @@ def create_app():
         if not current_user.can_confirm():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
-        drafts = SpendingDraft.query.filter_by(status='pending').order_by(SpendingDraft.created_at.desc()).all()
-        return render_template('spending_confirm.html', drafts=drafts)
+        drafts = SpendingDraft.query.filter_by(status='pending').order_by(
+            SpendingDraft.created_at.desc()
+        ).all()
 
-    @app.route('/spending/<int:id>/approve', methods=['POST'])
+        grouped = {}
+        for d in drafts:
+            key = d.operation_id or f'Без операции #{d.id}'
+            if key not in grouped:
+                grouped[key] = {
+                    'operation_id': d.operation_id,
+                    'created_at': d.created_at,
+                    'doctor_name': d.doctor_name,
+                    'creator': d.user,
+                    'items': [],
+                }
+            grouped[key]['items'].append(d)
+
+        return render_template('spending_confirm.html', grouped=grouped)
+
+    @app.route('/spending/operation/<operation_id>/approve', methods=['POST'])
     @login_required
-    def spending_approve(id):
+    def spending_operation_approve(operation_id):
         if not current_user.can_confirm():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
-        draft = SpendingDraft.query.get_or_404(id)
-        material = draft.material
-        batches = Batch.query.filter(
-            Batch.material_id == material.id, Batch.is_active == True,
-            Batch.quantity - Batch.used > 0
-        ).order_by(Batch.expiry_date.asc()).all()
-        total_available = sum(b.remaining for b in batches)
-        if draft.quantity > total_available:
-            flash(f'Недостаточно! Доступно: {total_available} шт.', 'danger')
+
+        drafts = SpendingDraft.query.filter_by(
+            operation_id=operation_id, status='pending'
+        ).all()
+
+        if not drafts:
+            flash('Черновики не найдены.', 'warning')
             return redirect(url_for('spending_confirm_list'))
-        remaining_to_take = draft.quantity
-        for batch in batches:
-            if remaining_to_take <= 0:
-                break
-            take = min(batch.remaining, remaining_to_take)
-            batch.used += take
-            remaining_to_take -= take
-            db.session.add(Transaction(
-                user_id=current_user.id, batch_id=batch.id, type='out',
-                quantity=take, operation_id=draft.operation_id,
-                doctor_name=draft.doctor_name,
-                note=f'Подтверждено врачом: {draft.note or ""}'
-            ))
-        draft.status = 'confirmed'
-        draft.confirmed_by = current_user.id
-        draft.confirmed_at = datetime.utcnow()
+
+        # Проверка наличия по всем позициям
+        for draft in drafts:
+            material = draft.material
+            batches = Batch.query.filter(
+                Batch.material_id == material.id, Batch.is_active == True,
+                Batch.quantity - Batch.used > 0
+            ).all()
+            total_available = sum(b.remaining for b in batches)
+            if draft.quantity > total_available:
+                flash(f'Недостаточно "{material.name}"! Доступно: {total_available} шт.', 'danger')
+                return redirect(url_for('spending_confirm_list'))
+
+        # Списываем всё
+        count = len(drafts)
+        for draft in drafts:
+            material = draft.material
+            batches = Batch.query.filter(
+                Batch.material_id == material.id, Batch.is_active == True,
+                Batch.quantity - Batch.used > 0
+            ).order_by(Batch.expiry_date.asc()).all()
+            remaining_to_take = draft.quantity
+            for batch in batches:
+                if remaining_to_take <= 0:
+                    break
+                take = min(batch.remaining, remaining_to_take)
+                batch.used += take
+                remaining_to_take -= take
+                db.session.add(Transaction(
+                    user_id=current_user.id, batch_id=batch.id, type='out',
+                    quantity=take, operation_id=draft.operation_id,
+                    doctor_name=draft.doctor_name,
+                    note=f'Подтверждено врачом: {draft.note or ""}'
+                ))
+            db.session.delete(draft)
+
         db.session.commit()
-        flash(f'Списание подтверждено: {material.name} — {draft.quantity} шт.', 'success')
+        flash(f'Операция {operation_id}: списано {count} позиций!', 'success')
         return redirect(url_for('spending_confirm_list'))
 
-    @app.route('/spending/<int:id>/reject', methods=['POST'])
+    @app.route('/spending/operation/<operation_id>/reject', methods=['POST'])
     @login_required
-    def spending_reject(id):
+    def spending_operation_reject(operation_id):
         if not current_user.can_confirm():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
-        draft = SpendingDraft.query.get_or_404(id)
-        draft.status = 'rejected'
-        draft.confirmed_by = current_user.id
-        draft.confirmed_at = datetime.utcnow()
+
+        drafts = SpendingDraft.query.filter_by(
+            operation_id=operation_id, status='pending'
+        ).all()
+
+        if not drafts:
+            flash('Черновики не найдены.', 'warning')
+            return redirect(url_for('spending_confirm_list'))
+
+        for draft in drafts:
+            draft.status = 'rejected'
+            draft.confirmed_by = current_user.id
+            draft.confirmed_at = datetime.utcnow()
+
         db.session.commit()
-        flash('Списание отклонено.', 'info')
+        flash(f'Операция {operation_id} отправлена на доработку.', 'info')
         return redirect(url_for('spending_confirm_list'))
+
+    # ──────────────────────────────────────────
+    # МОИ ЧЕРНОВИКИ (для лаборанта)
+    # ──────────────────────────────────────────
+    @app.route('/spending/my-drafts')
+    @login_required
+    def my_drafts():
+        if not current_user.can_view_own_drafts():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('index'))
+
+        drafts = SpendingDraft.query.filter_by(
+            user_id=current_user.id
+        ).order_by(SpendingDraft.created_at.desc()).all()
+
+        grouped = {}
+        for d in drafts:
+            key = d.operation_id or f'Без операции #{d.id}'
+            if key not in grouped:
+                grouped[key] = {
+                    'operation_id': d.operation_id,
+                    'status': d.status,
+                    'doctor_name': d.doctor_name,
+                    'created_at': d.created_at,
+                    'items': [],
+                }
+            grouped[key]['items'].append(d)
+            if d.status == 'rejected':
+                grouped[key]['status'] = 'rejected'
+
+        return render_template('my_drafts.html', grouped=grouped)
 
     # ──────────────────────────────────────────
     # ЗАЯВКИ НА ПЕРЕМЕЩЕНИЕ

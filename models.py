@@ -93,11 +93,13 @@ class User(UserMixin, db.Model):
 
     def can_view_low_stock(self):
         return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
+
+    def can_view_own_drafts(self):
+        return self.role in ('admin', 'head_nurse', 'xray_lab')
     
     def __repr__(self):
         return f'<User {self.username} ({self.role})>'
-
-
+    
 # ──────────────────────────────────────────────
 # МЕСТА ХРАНЕНИЯ (локации)
 # ──────────────────────────────────────────────

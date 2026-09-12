@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Мои черновики — Склад{% endblock %}
+{% block content %}
+<h1 class="mb-4"><i class="bi bi-pencil-square"></i> Мои черновики списаний</h1>
+
+{% for op_id, group in grouped.items() %}
+<div class="card mb-3 {% if group.status == 'rejected' %}border-danger{% endif %}">
+    <div class="card-header d-flex justify-content-between align-items-center
+                 {% if group.status == 'rejected' %}bg-danger text-white{% else %}bg-warning text-dark{% endif %}">
+        <div>
+            <strong><i class="bi bi-clipboard-pulse"></i> Операция: {{ group.operation_id or '—' }}</strong>
+            <br>
+            <small>
+                Врач: {{ group.doctor_name or '—' }} |
+                {{ group.created_at.strftime('%d.%m.%Y %H:%M') }} |
+                Статус:
+                {% if group.status == 'rejected' %}Отклонено — доработайте и отправьте снова{% else %}Ожидает врача{% endif %}
+            </small>
+        </div>
+        <div>
+            {% if group.status == 'rejected' and group.operation_id %}
+            <a href="/operations/out?operation_id={{ group.operation_id }}" class="btn btn-light btn-sm">
+                <i class="bi bi-pencil"></i> Исправить и отправить заново
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Материал</th>
+                    <th>Размер</th>
+                    <th>Количество</th>
+                    <th>Примечание</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in group['items'] %}
+                <tr>
+                    <td><strong>{{ d.material.name }}</strong></td>
+                    <td>{{ d.material.size or '—' }}</td>
+                    <td>{{ d.quantity }} шт.</td>
+                    <td>{{ d.note or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> У вас нет активных черновиков.
+</div>
+{% endfor %}
+{% endblock %}

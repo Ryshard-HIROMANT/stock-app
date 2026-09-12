@@ -72,12 +72,15 @@
                     </li>
                     
                     <!-- Заявки и подтверждения -->
-                    {% if current_user.can_create_request() or current_user.can_confirm() %}
+                    {% if current_user.can_create_request() or current_user.can_confirm() or current_user.can_view_own_drafts() %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-send-check"></i> Заявки
                         </a>
                         <ul class="dropdown-menu dropdown-menu-dark">
+                            {% if current_user.can_view_own_drafts() %}
+                            <li><a class="dropdown-item" href="/spending/my-drafts"><i class="bi bi-pencil-square"></i> Мои черновики</a></li>
+                            {% endif %}
                             {% if current_user.can_create_request() or current_user.can_process_requests() %}
                             <li><a class="dropdown-item" href="/requests"><i class="bi bi-send"></i> Заявки на перемещение</a></li>
                             {% endif %}

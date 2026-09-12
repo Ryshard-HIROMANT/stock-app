@@ -1,51 +1,61 @@
-cat > templates/spending_confirm.html << 'ENDOFFILE'
 {% extends "base.html" %}
 {% block title %}Подтверждение списаний — Склад{% endblock %}
 {% block content %}
 <h1 class="mb-4"><i class="bi bi-check-circle"></i> Ожидают подтверждения</h1>
 
-<div class="card">
+{% for op_id, group in grouped.items() %}
+<div class="card mb-3">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <div>
+            <strong><i class="bi bi-clipboard-pulse"></i> Операция: {{ group.operation_id or '—' }}</strong>
+            <br>
+            <small>
+                Врач: {{ group.doctor_name or '—' }} |
+                Создал: {{ group.creator.full_name or group.creator.username }} |
+                {{ group.created_at.strftime('%d.%m.%Y %H:%M') }}
+            </small>
+        </div>
+        <div>
+            <form method="POST" action="/spending/operation/{{ group.operation_id }}/approve"
+                  style="display:inline;" onsubmit="return confirm('Подтвердить списание всей операции {{ group.operation_id }}?')">
+                <button type="submit" class="btn btn-light btn-sm">
+                    <i class="bi bi-check-circle"></i> Подтвердить всё
+                </button>
+            </form>
+            <form method="POST" action="/spending/operation/{{ group.operation_id }}/reject"
+                  style="display:inline;" onsubmit="return confirm('Отправить операцию {{ group.operation_id }} на доработку?')">
+                <button type="submit" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-arrow-counterclockwise"></i> На доработку
+                </button>
+            </form>
+        </div>
+    </div>
     <div class="card-body table-responsive">
-        <table class="table table-striped table-hover align-middle">
-            <thead class="table-dark">
+        <table class="table table-sm align-middle mb-0">
+            <thead>
                 <tr>
-                    <th>Дата</th>
                     <th>Материал</th>
-                    <th>Кол-во</th>
-                    <th>Операция</th>
-                    <th>Врач</th>
-                    <th>Создал</th>
-                    <th>Действия</th>
+                    <th>Размер</th>
+                    <th>Количество</th>
+                    <th>Примечание</th>
                 </tr>
             </thead>
             <tbody>
-                {% for d in drafts %}
+                {% for d in group['items'] %}
                 <tr>
-                    <td>{{ d.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
-                    <td><strong>{{ d.material.name }}</strong> {{ d.material.size or '' }}</td>
+                    <td><strong>{{ d.material.name }}</strong></td>
+                    <td>{{ d.material.size or '—' }}</td>
                     <td>{{ d.quantity }} шт.</td>
-                    <td>{{ d.operation_id or '—' }}</td>
-                    <td>{{ d.doctor_name or '—' }}</td>
-                    <td>{{ d.user.full_name or d.user.username }}</td>
-                    <td>
-                        <form method="POST" action="/spending/{{ d.id }}/approve" style="display:inline;">
-                            <button type="submit" class="btn btn-sm btn-success" title="Подтвердить">
-                                <i class="bi bi-check-lg"></i>
-                            </button>
-                        </form>
-                        <form method="POST" action="/spending/{{ d.id }}/reject" style="display:inline;">
-                            <button type="submit" class="btn btn-sm btn-danger" title="Отклонить">
-                                <i class="bi bi-x-lg"></i>
-                            </button>
-                        </form>
-                    </td>
+                    <td>{{ d.note or '—' }}</td>
                 </tr>
-                {% else %}
-                <tr><td colspan="7" class="text-center text-muted">Нет ожидающих списаний</td></tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
+{% else %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> Нет ожидающих списаний.
+</div>
+{% endfor %}
 {% endblock %}
-ENDOFFILE

@@ -10,7 +10,9 @@
         <div class="row mb-3">
             <div class="col-md-4">
                 <label for="operation_id" class="form-label">ID операции *</label>
-                <input type="text" class="form-control" id="operation_id" placeholder="Номер или код операции" required>
+                <input type="text" class="form-control" id="operation_id"
+                       value="{{ prefilled_operation or '' }}"
+                       placeholder="Номер или код операции" required>
             </div>
             <div class="col-md-4">
                 <label for="doctor_name" class="form-label">Врач *</label>
@@ -20,7 +22,9 @@
             </div>
             <div class="col-md-4">
                 <label for="note" class="form-label">Общее примечание</label>
-                <input type="text" class="form-control" id="note" placeholder="Необязательно">
+                <input type="text" class="form-control" id="note"
+                       value="{{ prefilled_note or '' }}"
+                       placeholder="Необязательно">
             </div>
         </div>
     </div>
@@ -203,6 +207,10 @@ document.getElementById('submitOutBtn').addEventListener('click', function() {
     form.submit();
 });
 
+// Загрузка врачей + предзаполнение
+const prefilledCart = {{ prefilled_cart|tojson }};
+const prefilledDoctor = {{ prefilled_doctor|tojson }};
+
 fetch('/api/doctors')
     .then(r => r.json())
     .then(doctors => {
@@ -210,6 +218,19 @@ fetch('/api/doctors')
         doctors.forEach(d => {
             select.innerHTML += `<option value="${d.name}">${d.name}</option>`;
         });
+        if (prefilledDoctor) {
+            select.value = prefilledDoctor;
+        }
     });
+
+// Если есть предзаполнение — заполняем корзину
+if (prefilledCart && prefilledCart.length > 0) {
+    cart = prefilledCart.map(item => ({
+        id: String(item.id),
+        name: item.name,
+        qty: parseInt(item.qty) || 1
+    }));
+    renderCart();
+}
 </script>
 {% endblock %}
