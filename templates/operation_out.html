@@ -150,7 +150,11 @@ document.getElementById('scanBtn').addEventListener('click', function() {
                     if (data.found) {
                         document.getElementById('material_select').value = data.material.id;
                         document.getElementById('item_quantity').focus();
-                    } else { alert('Материал не найден!'); }
+                    } else {
+    if (confirm('QR-код не найден в базе!\n\nЗарегистрировать новый материал с этим QR-кодом?')) {
+        window.location.href = '/materials/add?barcode=' + encodeURIComponent(decodedText);
+    }
+}
                 });
         },
         () => {}

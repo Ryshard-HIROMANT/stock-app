@@ -38,7 +38,7 @@
                            placeholder="5F, 6F...">
                 </div>
                 <div class="col-md-2">
-                    <label for="new_material_barcode" class="form-label">Штрихкод</label>
+                    <label for="new_material_barcode" class="form-label">QR-код * <span class="text-danger">(обязательно)</span></label>
                     <div class="input-group">
                         <input type="text" class="form-control" id="new_material_barcode" name="new_material_barcode"
                                placeholder="Код">
@@ -46,6 +46,7 @@
                             <i class="bi bi-camera"></i>
                         </button>
                     </div>
+                    <small class="text-muted">Без QR-кода новый материал создать нельзя</small>
                 </div>
             </div>
             <div id="scannerContainer" style="display:none; margin-bottom: 15px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
@@ -106,6 +107,19 @@
 
 {% block scripts %}
 <script>
+// Валидация: новый материал без QR — нельзя
+document.querySelector('form').addEventListener('submit', function(e) {
+    const matId = document.getElementById('material_id').value;
+    const newName = document.getElementById('new_material_name').value.trim();
+    const newBarcode = document.getElementById('new_material_barcode').value.trim();
+    const isCreatingNew = (!matId || matId === 'new') && newName;
+    if (isCreatingNew && !newBarcode) {
+        e.preventDefault();
+        alert('QR-код обязателен для нового материала! Отсканируйте или введите код.');
+        document.getElementById('new_material_barcode').focus();
+    }
+});
+
 const searchInput = document.getElementById('material_search');
 const selectEl = document.getElementById('material_id');
 const options = Array.from(selectEl.options);

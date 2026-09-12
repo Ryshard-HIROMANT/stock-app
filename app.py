@@ -201,6 +201,7 @@ def create_app():
         if not current_user.is_storekeeper():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('materials'))
+        categories_list = Category.query.order_by(Category.name).all()
         if request.method == 'POST':
             name = request.form.get('name', '').strip()
             size = request.form.get('size', '').strip()
@@ -211,11 +212,19 @@ def create_app():
             note = request.form.get('note', '').strip()
             if not name:
                 flash('Название обязательно!', 'danger')
-                categories_list = Category.query.order_by(Category.name).all()
-                return render_template('material_form.html', material=None, categories=categories_list)
+                return render_template('material_form.html', material=None,
+                                       categories=categories_list, prefill_barcode=barcode)
+            if not barcode:
+                flash('QR-код обязателен! Материал нельзя создать без QR-кода.', 'danger')
+                return render_template('material_form.html', material=None,
+                                       categories=categories_list, prefill_barcode=barcode)
+            if Material.query.filter_by(barcode=barcode).first():
+                flash(f'Материал с QR-кодом "{barcode}" уже существует!', 'danger')
+                return render_template('material_form.html', material=None,
+                                       categories=categories_list, prefill_barcode=barcode)
             material = Material(
                 name=name, size=size if size else None,
-                barcode=barcode if barcode else None,
+                barcode=barcode,
                 category_id=int(category_id) if category_id else None,
                 is_reusable=is_reusable,
                 min_stock=int(min_stock) if min_stock.isdigit() else 0,
@@ -225,8 +234,9 @@ def create_app():
             db.session.commit()
             flash(f'Материал "{name}" добавлен!', 'success')
             return redirect(url_for('materials'))
-        categories_list = Category.query.order_by(Category.name).all()
-        return render_template('material_form.html', material=None, categories=categories_list)
+        prefill_barcode = request.args.get('barcode', '').strip()
+        return render_template('material_form.html', material=None,
+                               categories=categories_list, prefill_barcode=prefill_barcode)
 
     @app.route('/materials/<int:id>/edit', methods=['GET', 'POST'])
     @login_required
@@ -235,10 +245,22 @@ def create_app():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('materials'))
         material = Material.query.get_or_404(id)
+        categories_list = Category.query.order_by(Category.name).all()
         if request.method == 'POST':
-            material.name = request.form.get('name', '').strip()
+            name = request.form.get('name', '').strip()
+            barcode = request.form.get('barcode', '').strip()
+            if not barcode:
+                flash('QR-код обязателен!', 'danger')
+                return render_template('material_form.html', material=material,
+                                       categories=categories_list, prefill_barcode=barcode)
+            existing = Material.query.filter(Material.barcode == barcode, Material.id != id).first()
+            if existing:
+                flash(f'QR-код "{barcode}" уже используется материалом "{existing.name}"!', 'danger')
+                return render_template('material_form.html', material=material,
+                                       categories=categories_list, prefill_barcode=barcode)
+            material.name = name
             material.size = request.form.get('size', '').strip() or None
-            material.barcode = request.form.get('barcode', '').strip() or None
+            material.barcode = barcode
             cat_id = request.form.get('category_id', '').strip()
             material.category_id = int(cat_id) if cat_id else None
             material.is_reusable = request.form.get('is_reusable') == '1'
@@ -248,7 +270,6 @@ def create_app():
             db.session.commit()
             flash(f'Материал "{material.name}" обновлён!', 'success')
             return redirect(url_for('materials'))
-        categories_list = Category.query.order_by(Category.name).all()
         return render_template('material_form.html', material=material, categories=categories_list)
 
     @app.route('/materials/<int:id>/delete', methods=['POST'])
@@ -474,11 +495,29 @@ def create_app():
             if mat_id and mat_id != 'new':
                 material = Material.query.get_or_404(int(mat_id))
             elif new_name:
+                if not new_barcode:
+                    flash('QR-код обязателен для нового материала!', 'danger')
+                    return redirect(url_for('operation_in'))
                 material = Material.query.filter_by(name=new_name, size=new_size if new_size else None).first()
-                if not material:
+                if material:
+                    if material.barcode and material.barcode != new_barcode:
+                        flash(f'Материал "{material.name}" уже имеет QR-код "{material.barcode}". '
+                              f'Указан другой код "{new_barcode}".', 'danger')
+                        return redirect(url_for('operation_in'))
+                    if not material.barcode:
+                        dup = Material.query.filter_by(barcode=new_barcode).first()
+                        if dup:
+                            flash(f'QR-код "{new_barcode}" уже используется материалом "{dup.name}"!', 'danger')
+                            return redirect(url_for('operation_in'))
+                        material.barcode = new_barcode
+                else:
+                    dup = Material.query.filter_by(barcode=new_barcode).first()
+                    if dup:
+                        flash(f'QR-код "{new_barcode}" уже используется материалом "{dup.name}"!', 'danger')
+                        return redirect(url_for('operation_in'))
                     material = Material(
                         name=new_name, size=new_size if new_size else None,
-                        barcode=new_barcode if new_barcode else None,
+                        barcode=new_barcode,
                         category_id=int(new_category_id) if new_category_id else None,
                         is_reusable=is_reusable,
                     )
@@ -533,7 +572,6 @@ def create_app():
                 flash('Заполните все обязательные поля.', 'danger')
                 return redirect(url_for('operation_out'))
 
-            # Удаляем старые rejected-черновики с этим operation_id у текущего пользователя
             SpendingDraft.query.filter_by(
                 user_id=current_user.id,
                 operation_id=operation_id,
@@ -580,7 +618,6 @@ def create_app():
 
             return redirect(url_for('index'))
 
-        # GET: проверяем предзаполнение из отклонённого черновика
         prefilled_operation = request.args.get('operation_id', '').strip()
         prefilled_cart = []
         prefilled_doctor = ''
@@ -654,7 +691,6 @@ def create_app():
             flash('Черновики не найдены.', 'warning')
             return redirect(url_for('spending_confirm_list'))
 
-        # Проверка наличия по всем позициям
         for draft in drafts:
             material = draft.material
             batches = Batch.query.filter(
@@ -666,7 +702,6 @@ def create_app():
                 flash(f'Недостаточно "{material.name}"! Доступно: {total_available} шт.', 'danger')
                 return redirect(url_for('spending_confirm_list'))
 
-        # Списываем всё
         count = len(drafts)
         for draft in drafts:
             material = draft.material
