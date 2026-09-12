@@ -63,10 +63,34 @@ def create_app():
     @login_required
     def index():
         today = date.today()
-        batches = Batch.query.filter(
-            Batch.is_active == True,
-            Batch.quantity - Batch.used > 0
-        ).order_by(Batch.expiry_date.asc()).all()
+        category_id = request.args.get('category_id', '').strip()
+
+        query = Material.query
+        if category_id:
+            query = query.filter(Material.category_id == int(category_id))
+        materials_all = query.order_by(Material.name).all()
+
+        aggregated = []
+        for m in materials_all:
+            active_batches = [b for b in m.batches if b.is_active and b.remaining > 0]
+            if not active_batches:
+                continue
+            total_remaining = sum(b.remaining for b in active_batches)
+            expiry_dates = [b.expiry_date for b in active_batches if b.expiry_date]
+            nearest_expiry = min(expiry_dates) if expiry_dates else None
+            has_expired = any(b.is_expired for b in active_batches)
+            low_stock = total_remaining <= (m.min_stock or 0)
+            aggregated.append({
+                'material': m,
+                'total_remaining': total_remaining,
+                'nearest_expiry': nearest_expiry,
+                'has_expired': has_expired,
+                'low_stock': low_stock,
+                'min_stock': m.min_stock or 0,
+            })
+
+        categories_list = Category.query.order_by(Category.name).all()
+
         total_materials = Material.query.count()
         total_batches = Batch.query.filter(Batch.is_active == True).count()
         expired_batches = Batch.query.filter(
@@ -81,11 +105,18 @@ def create_app():
         reusable_count = Material.query.filter_by(is_reusable=True).count()
         pending_requests = TransferRequest.query.filter_by(status='pending').count()
         pending_drafts = SpendingDraft.query.filter_by(status='pending').count()
+
         return render_template('index.html',
-                               batches=batches, total_materials=total_materials,
-                               total_batches=total_batches, expired_batches=expired_batches,
-                               expiring_soon=expiring_soon, reusable_count=reusable_count,
-                               pending_requests=pending_requests, pending_drafts=pending_drafts,
+                               aggregated=aggregated,
+                               categories=categories_list,
+                               selected_category=category_id,
+                               total_materials=total_materials,
+                               total_batches=total_batches,
+                               expired_batches=expired_batches,
+                               expiring_soon=expiring_soon,
+                               reusable_count=reusable_count,
+                               pending_requests=pending_requests,
+                               pending_drafts=pending_drafts,
                                today=today)
 
     # ──────────────────────────────────────────
@@ -113,6 +144,29 @@ def create_app():
         ).order_by(Batch.expiry_date.asc()).all()
         return render_template('dashboard_filtered.html', batches=batches,
                                title='Истекают в течение 90 дней', filter_type='expiring')
+
+    @app.route('/dashboard/low-stock')
+    @login_required
+    def dashboard_low_stock():
+        if not current_user.can_view_low_stock():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('index'))
+
+        materials_all = Material.query.order_by(Material.name).all()
+        aggregated = []
+        for m in materials_all:
+            active_batches = [b for b in m.batches if b.is_active and b.remaining > 0]
+            total_remaining = sum(b.remaining for b in active_batches)
+            min_stock = m.min_stock or 0
+            if total_remaining <= min_stock:
+                aggregated.append({
+                    'material': m,
+                    'total_remaining': total_remaining,
+                    'min_stock': min_stock,
+                    'deficit': min_stock - total_remaining,
+                })
+
+        return render_template('low_stock.html', aggregated=aggregated)
 
     # ──────────────────────────────────────────
     # МАТЕРИАЛЫ
@@ -340,6 +394,20 @@ def create_app():
         db.session.commit()
         flash(f'Локация "{loc.code}" удалена.', 'info')
         return redirect(url_for('locations'))
+
+    @app.route('/locations/<int:id>/view')
+    @login_required
+    def location_view(id):
+        if not current_user.can_view_location_contents():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('locations'))
+        loc = Location.query.get_or_404(id)
+        batches = Batch.query.filter(
+            Batch.location_id == loc.id,
+            Batch.is_active == True,
+            Batch.quantity - Batch.used > 0
+        ).order_by(Batch.expiry_date.asc()).all()
+        return render_template('location_view.html', location=loc, batches=batches)
 
     # ──────────────────────────────────────────
     # СКАНЕР
@@ -578,10 +646,12 @@ def create_app():
     @app.route('/requests')
     @login_required
     def requests_list():
-        if current_user.can_create_request():
-            reqs = TransferRequest.query.order_by(TransferRequest.created_at.desc()).all()
+        if current_user.can_process_requests():
+            reqs = TransferRequest.query.filter_by(status='pending').order_by(TransferRequest.created_at.desc()).all()
         else:
-            reqs = TransferRequest.query.filter_by(from_user_id=current_user.id).order_by(TransferRequest.created_at.desc()).all()
+            reqs = TransferRequest.query.filter_by(
+                from_user_id=current_user.id, status='pending'
+            ).order_by(TransferRequest.created_at.desc()).all()
         return render_template('requests.html', requests=reqs)
 
     @app.route('/requests/add', methods=['GET', 'POST'])
@@ -608,21 +678,42 @@ def create_app():
         materials_list = Material.query.order_by(Material.name).all()
         return render_template('request_form.html', materials=materials_list)
 
+    @app.route('/requests/<int:id>/complete', methods=['POST'])
+    @login_required
+    def request_complete(id):
+        if not current_user.can_process_requests():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('requests_list'))
+        req = TransferRequest.query.get_or_404(id)
+        if req.status != 'pending':
+            flash('Заявка уже обработана.', 'warning')
+            return redirect(url_for('requests_list'))
+        req.status = 'completed'
+        req.to_user_id = current_user.id
+        req.processed_at = datetime.utcnow()
+        db.session.commit()
+        flash(f'Заявка #{req.id} подтверждена!', 'success')
+        return redirect(url_for('requests_list'))
+
     # ──────────────────────────────────────────
     # ПЕРЕМЕЩЕНИЯ
     # ──────────────────────────────────────────
     @app.route('/transfers')
     @login_required
     def transfers_list():
+        if not current_user.can_transfer():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('index'))
         transfers = Transfer.query.order_by(Transfer.created_at.desc()).limit(50).all()
         return render_template('transfers.html', transfers=transfers)
 
     @app.route('/transfers/add', methods=['GET', 'POST'])
     @login_required
     def transfer_add():
-        if not current_user.is_storekeeper():
+        if not current_user.can_transfer():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
+
         if request.method == 'POST':
             from_location_code = request.form.get('from_location', '').strip()
             to_location_code = request.form.get('to_location', '').strip()
@@ -749,6 +840,9 @@ def create_app():
     @app.route('/transactions')
     @login_required
     def transactions():
+        if not current_user.can_view_journal():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('index'))
         transactions_list = Transaction.query.order_by(Transaction.created_at.desc()).limit(100).all()
         return render_template('transactions.html', transactions=transactions_list)
 
@@ -886,7 +980,6 @@ def create_app():
                         max_length = max(max_length, len(str(cell.value)))
                 ws.column_dimensions[col_letter].width = min(max_length + 2, 40)
 
-        # Удаляем пустой лист, если есть другие
         if len(wb.sheetnames) > 1:
             wb.remove(wb["Пусто"])
 
@@ -898,6 +991,7 @@ def create_app():
         return send_file(output, download_name=filename,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                          as_attachment=True)
+
     # ──────────────────────────────────────────
     # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ (админ)
     # ──────────────────────────────────────────
@@ -975,6 +1069,7 @@ def create_app():
         db.session.commit()
         flash(f'Пользователь "{username}" удалён.', 'info')
         return redirect(url_for('admin_users'))
+
     # ──────────────────────────────────────────
     # API: список врачей
     # ──────────────────────────────────────────
@@ -986,6 +1081,7 @@ def create_app():
             User.is_active == True
         ).order_by(User.full_name).all()
         return [{'id': u.id, 'name': u.full_name or u.username} for u in doctors]
+
     # ──────────────────────────────────────────
     # АНАЛИТИКА (заведующий, админ)
     # ──────────────────────────────────────────
@@ -998,7 +1094,6 @@ def create_app():
 
         from collections import Counter
 
-        # Период
         start_str = request.args.get('start', '')
         end_str = request.args.get('end', '')
 
@@ -1015,18 +1110,15 @@ def create_app():
 
         transactions = query.order_by(Transaction.created_at.desc()).all()
 
-        # Общая сводка
         total_operations = len(set(t.operation_id for t in transactions if t.operation_id))
         total_items = sum(t.quantity for t in transactions)
 
-        # По врачам
         doctor_stats = Counter()
         for t in transactions:
             if t.doctor_name:
                 doctor_stats[t.doctor_name] += t.quantity
         top_doctors = doctor_stats.most_common(10)
 
-        # По материалам
         material_stats = Counter()
         for t in transactions:
             name = t.batch.material.name if t.batch and t.batch.material else '—'
@@ -1040,7 +1132,7 @@ def create_app():
                                top_doctors=top_doctors,
                                top_materials=top_materials,
                                start=start_str, end=end_str)
-    
+
     return app
 
 

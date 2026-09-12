@@ -61,7 +61,7 @@
                             {% if current_user.can_create_draft() %}
                             <li><a class="dropdown-item" href="/operations/out"><i class="bi bi-box-arrow-up"></i> Расход</a></li>
                             {% endif %}
-                            {% if current_user.is_storekeeper() %}
+                            {% if current_user.can_transfer() %}
                             <li><a class="dropdown-item" href="/transfers"><i class="bi bi-arrow-left-right"></i> Перемещения</a></li>
                             {% endif %}
                             {% if current_user.can_revision() %}
@@ -89,7 +89,9 @@
                     {% endif %}
                     
                     <li class="nav-item"><a class="nav-link" href="/scanner"><i class="bi bi-camera"></i> Сканер</a></li>
+                                        {% if current_user.can_view_journal() %}
                     <li class="nav-item"><a class="nav-link" href="/transactions"><i class="bi bi-journal-text"></i> Журнал</a></li>
+                    {% endif %}
                     
                     {% if current_user.can_reports() %}
                     <li class="nav-item"><a class="nav-link" href="/analytics"><i class="bi bi-graph-up"></i> Аналитика</a></li>

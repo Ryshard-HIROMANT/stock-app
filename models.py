@@ -82,6 +82,18 @@ class User(UserMixin, db.Model):
     def can_reports(self):
         return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
 
+    def can_view_journal(self):
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
+
+    def can_transfer(self):
+        return self.role in ('admin', 'doctor_storekeeper', 'head_nurse')
+
+    def can_view_location_contents(self):
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
+
+    def can_view_low_stock(self):
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
+    
     def __repr__(self):
         return f'<User {self.username} ({self.role})>'
 

@@ -14,7 +14,7 @@
 
 <div class="card">
     <div class="card-body table-responsive">
-        <table class="table table-striped table-hover align-middle">
+                <table class="table table-striped table-hover align-middle">
             <thead class="table-dark">
                 <tr>
                     <th>Код</th>
@@ -28,6 +28,11 @@
                     <td><span class="badge bg-secondary fs-6">{{ loc.code }}</span></td>
                     <td>{{ loc.description or '—' }}</td>
                     <td>
+                        {% if current_user.can_view_location_contents() %}
+                        <a href="/locations/{{ loc.id }}/view" class="btn btn-sm btn-info" title="Показать содержимое">
+                            <i class="bi bi-eye"></i> Содержимое
+                        </a>
+                        {% endif %}
                         {% if current_user.is_storekeeper() %}
                         <a href="/locations/{{ loc.id }}/edit" class="btn btn-sm btn-warning" title="Редактировать">
                             <i class="bi bi-pencil"></i>
