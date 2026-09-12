@@ -21,6 +21,13 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        # Миграция: добавляем колонку can_revision_extra, если её ещё нет
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("ALTER TABLE users ADD COLUMN can_revision_extra BOOLEAN DEFAULT 0"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # колонка уже существует — это нормально
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -1183,7 +1190,9 @@ def create_app():
             if User.query.filter_by(username=username).first():
                 flash(f'Логин "{username}" уже занят!', 'danger')
                 return render_template('admin_user_form.html', user=None)
-            user = User(username=username, full_name=full_name, role=role)
+            can_revision_extra = request.form.get('can_revision_extra') == '1'
+            user = User(username=username, full_name=full_name, role=role,
+                        can_revision_extra=can_revision_extra)
             user.set_password(password)
             db.session.add(user)
             db.session.commit()
@@ -1211,6 +1220,7 @@ def create_app():
             if password:
                 user.set_password(password)
             user.is_active = request.form.get('is_active') == '1'
+            user.can_revision_extra = request.form.get('can_revision_extra') == '1'
             db.session.commit()
             flash(f'Пользователь "{user.username}" обновлён!', 'success')
             return redirect(url_for('admin_users'))

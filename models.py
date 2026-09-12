@@ -34,6 +34,7 @@ class User(UserMixin, db.Model):
     full_name = db.Column(db.String(200))
     role = db.Column(db.String(30), nullable=False, default='viewer')
     is_active = db.Column(db.Boolean, default=True)
+    can_revision_extra = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     transactions = db.relationship('Transaction', backref='user', lazy=True)
@@ -77,7 +78,7 @@ class User(UserMixin, db.Model):
         return self.role in ('admin', 'head_nurse', 'doctor_storekeeper')
 
     def can_revision(self):
-        return self.role in ('admin', 'head_nurse')
+        return self.role in ('admin', 'doctor_storekeeper') or self.can_revision_extra
 
     def can_reports(self):
         return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
@@ -96,10 +97,11 @@ class User(UserMixin, db.Model):
 
     def can_view_own_drafts(self):
         return self.role in ('admin', 'head_nurse', 'xray_lab')
-    
+
     def __repr__(self):
         return f'<User {self.username} ({self.role})>'
-    
+
+
 # ──────────────────────────────────────────────
 # МЕСТА ХРАНЕНИЯ (локации)
 # ──────────────────────────────────────────────
