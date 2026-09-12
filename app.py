@@ -441,12 +441,31 @@ def create_app():
     @app.route('/api/material-by-barcode')
     @login_required
     def api_material_by_barcode():
+        import re
+
         barcode = request.args.get('barcode', '').strip()
         if not barcode:
             return {'found': False}
+
+        def normalize(s):
+            # Убираем ВСЕ пробельные символы (пробелы, переносы, табы) и регистр
+            return re.sub(r'\s+', '', s or '').lower()
+
+        norm_scanned = normalize(barcode)
+
+        # 1. Точное совпадение
         material = Material.query.filter_by(barcode=barcode).first()
+
+        # 2. Сравнение без учёта пробелов и регистра
+        if not material:
+            for m in Material.query.all():
+                if m.barcode and normalize(m.barcode) == norm_scanned:
+                    material = m
+                    break
+
         if not material:
             return {'found': False}
+
         batches = Batch.query.filter(
             Batch.material_id == material.id, Batch.is_active == True,
             Batch.quantity - Batch.used > 0
