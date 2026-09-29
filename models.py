@@ -6,6 +6,18 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
 OPERATING_ROOM_LOCATION_CODE = '03'
+OPERATING_ROOM_LOCATION_CODES = ('03', '3', 'oper')
+
+
+def is_operating_room_code(code):
+    """Recognize legacy codes used for the same operating-room location."""
+    value = str(code or '').strip().lower()
+    if value == 'oper':
+        return True
+    try:
+        return int(value) == 3
+    except (TypeError, ValueError):
+        return False
 
 
 # ──────────────────────────────────────────────
@@ -83,7 +95,7 @@ class User(UserMixin, db.Model):
         return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper', 'doctor', 'xray_lab')
 
     def can_create_request(self):
-        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper', 'xray_lab')
 
     def can_process_requests(self):
         return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
@@ -102,7 +114,7 @@ class User(UserMixin, db.Model):
 
     def can_view_location_contents(self, location_code=None):
         if self.role == 'xray_lab':
-            return location_code in (None, OPERATING_ROOM_LOCATION_CODE)
+            return location_code is None or is_operating_room_code(location_code)
         return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper', 'doctor')
 
     def can_view_low_stock(self):

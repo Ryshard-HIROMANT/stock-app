@@ -92,12 +92,8 @@
 
                         {% for loc in locations %}
                         <option value="{{ loc.code }}"
-                                {% if transfer_request %}
-                                    {% if transfer_request.to_location_code == loc.code %}
-                                    selected
-                                    {% elif (transfer_request.to_location_code == 'oper' or not transfer_request.to_location_code) and loc.code == '03' %}
-                                    selected
-                                    {% endif %}
+                                {% if transfer_request and request_target_code == loc.code %}
+                                selected
                                 {% endif %}>
                             {{ loc.code }} — {{ loc.description }}
                         </option>

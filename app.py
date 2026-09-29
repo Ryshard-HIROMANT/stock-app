@@ -2,7 +2,12 @@ import os
 import json
 from flask import Flask, render_template, redirect, url_for, flash, request, send_file
 from config import Config
-from models import db, User, Material, Batch, Location, Transaction, Category, Transfer, TransferItem, TransferRequest, TransferRequestItem, SpendingDraft, Revision, OPERATING_ROOM_LOCATION_CODE
+from models import (
+    db, User, Material, Batch, Location, Transaction, Category, Transfer,
+    TransferItem, TransferRequest, TransferRequestItem, SpendingDraft, Revision,
+    OPERATING_ROOM_LOCATION_CODE, OPERATING_ROOM_LOCATION_CODES,
+    is_operating_room_code,
+)
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import date, datetime
 from io import BytesIO
@@ -23,6 +28,28 @@ def is_safe_redirect_target(target):
         return False
     parsed = urlsplit(target)
     return not parsed.scheme and not parsed.netloc and target.startswith('/') and not target.startswith('//')
+
+
+def find_operating_room_location():
+    """Resolve the OR despite legacy databases using 03, 3, or oper."""
+    location = Location.query.filter(
+        db.func.lower(db.func.trim(Location.description)) == 'операционная'
+    ).order_by(Location.id).first()
+    if location:
+        return location
+
+    for code in OPERATING_ROOM_LOCATION_CODES:
+        location = Location.query.filter_by(code=code).first()
+        if location:
+            return location
+    return None
+
+
+def find_location_by_code(code):
+    """Resolve regular locations exactly and OR aliases to the actual row."""
+    if is_operating_room_code(code):
+        return find_operating_room_location()
+    return Location.query.filter_by(code=str(code or '').strip()).first()
 
 
 def create_app():
@@ -393,10 +420,11 @@ def create_app():
     @app.route('/locations')
     @login_required
     def locations():
-        locations_query = Location.query
         if current_user.role == 'xray_lab':
-            locations_query = locations_query.filter_by(code=OPERATING_ROOM_LOCATION_CODE)
-        locs = locations_query.order_by(Location.code).all()
+            operating_room = find_operating_room_location()
+            locs = [operating_room] if operating_room else []
+        else:
+            locs = Location.query.order_by(Location.code).all()
         return render_template('locations.html', locations=locs)
 
     @app.route('/locations/add', methods=['GET', 'POST'])
@@ -458,7 +486,12 @@ def create_app():
     @login_required
     def location_view(id):
         loc = Location.query.get_or_404(id)
-        if not current_user.can_view_location_contents(loc.code):
+        if current_user.role == 'xray_lab':
+            operating_room = find_operating_room_location()
+            allowed = operating_room is not None and loc.id == operating_room.id
+        else:
+            allowed = current_user.can_view_location_contents(loc.code)
+        if not allowed:
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('locations'))
         batches = Batch.query.filter(
@@ -529,7 +562,7 @@ def create_app():
     def api_categories():
         categories_query = Category.query
         if current_user.role == 'xray_lab':
-            oper_location = Location.query.filter_by(code=OPERATING_ROOM_LOCATION_CODE).first()
+            oper_location = find_operating_room_location()
             if not oper_location:
                 return []
             category_ids = db.session.query(Material.category_id).join(
@@ -645,7 +678,7 @@ def create_app():
             cart = json.loads(cart_data)
 
             if current_user.role == 'xray_lab':
-                oper_location = Location.query.filter_by(code=OPERATING_ROOM_LOCATION_CODE).first()
+                oper_location = find_operating_room_location()
                 if not oper_location:
                     flash('Локация операционной не найдена.', 'danger')
                     return redirect(url_for('operation_out'))
@@ -682,9 +715,9 @@ def create_app():
                 for item in cart:
                     material = Material.query.get_or_404(int(item['id']))
                     qty = int(item['qty'])
-                    oper_location = Location.query.filter_by(code='03').first()
+                    oper_location = find_operating_room_location()
                     if not oper_location:
-                        flash('Ошибка: локация операционной (03) не найдена.', 'danger')
+                        flash('Ошибка: локация операционной не найдена.', 'danger')
                         return redirect(url_for('operation_out'))
 
                     batches = Batch.query.filter(
@@ -749,7 +782,7 @@ def create_app():
                 prefilled_note = rejected[0].note or ''
 
         if current_user.role == 'xray_lab':
-            oper_location = Location.query.filter_by(code=OPERATING_ROOM_LOCATION_CODE).first()
+            oper_location = find_operating_room_location()
             if oper_location:
                 material_ids = [row[0] for row in db.session.query(Batch.material_id).filter(
                     Batch.location_id == oper_location.id,
@@ -815,9 +848,9 @@ def create_app():
             return redirect(url_for('spending_confirm_list'))
 
         # Списание по операции выполняется ТОЛЬКО из операционной.
-        oper_location = Location.query.filter_by(code='03').first()
+        oper_location = find_operating_room_location()
         if not oper_location:
-            flash('Ошибка: локация операционной (03) не найдена в базе данных.', 'danger')
+            flash('Ошибка: локация операционной не найдена в базе данных.', 'danger')
             return redirect(url_for('spending_confirm_list'))
 
         # Сначала проверяем всю операцию целиком. Если хотя бы одного
@@ -959,11 +992,11 @@ def create_app():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
 
-        target_code = SPENDING_LOCATION_CODE if 'SPENDING_LOCATION_CODE' in globals() else '03'
-        target = Location.query.filter_by(code=target_code).first()
+        target = find_operating_room_location()
         if not target:
-            flash(f'Локация назначения ({target_code}) не найдена.', 'danger')
+            flash('Локация назначения «Операционная» не найдена.', 'danger')
             return redirect(url_for('index'))
+        target_code = target.code
 
         if request.method == 'POST':
             mids=request.form.getlist('material_id[]')
@@ -1004,11 +1037,13 @@ def create_app():
         mats=Material.query.order_by(Material.name).all()
         availability={}
         for m in mats:
-            total=sum(
-                b.remaining
-                for b in m.batches
-                if b.is_active and b.remaining>0 and b.location_id!=target.id
-            )
+            total = 0
+            if current_user.role != 'xray_lab':
+                total = sum(
+                    b.remaining
+                    for b in m.batches
+                    if b.is_active and b.remaining > 0 and b.location_id != target.id
+                )
             availability[m.id]=total
 
         # В форме заявки показываем весь каталог материалов.
@@ -1036,11 +1071,16 @@ def create_app():
         if req.status!='pending':
             flash('Заявка уже обработана.','warning'); return redirect(url_for('requests_list'))
 
+        target = find_location_by_code(
+            req.to_location_code or OPERATING_ROOM_LOCATION_CODE
+        )
+        if not target:
+            flash('Локация назначения не найдена.', 'danger')
+            return redirect(url_for('requests_list'))
+        target_code = target.code
+
         if request.method=='GET':
             locations=Location.query.order_by(Location.code).all()
-            target_code=req.to_location_code or '03'
-            if target_code=='oper': target_code='03'
-            target=Location.query.filter_by(code=target_code).first()
             sources=[x for x in locations if not target or x.id!=target.id]
 
             # Материалы, которые реально доступны для выдачи
@@ -1140,9 +1180,7 @@ def create_app():
                 flash(f'Строка №{n}: партия недоступна.','danger')
                 return redirect(url_for('request_complete',id=req.id))
 
-            target_code_check=(req.to_location_code or '03').replace('oper','03')
-            target_check=Location.query.filter_by(code=target_code_check).first()
-            if b.location_id == (target_check.id if target_check else -1):
+            if b.location_id == target.id:
                 flash(f'Партия #{b.id} уже находится в назначении.','danger')
                 return redirect(url_for('request_complete',id=req.id))
 
@@ -1168,12 +1206,6 @@ def create_app():
                 flash(f'Партия #{b.id}: доступно {b.remaining} шт., передать пытаются {total} шт.','danger')
                 return redirect(url_for('request_complete',id=req.id))
             batches[bid]=b
-
-        target_code=req.to_location_code or '03'
-        if target_code=='oper': target_code='03'
-        target=Location.query.filter_by(code=target_code).first()
-        if not target:
-            flash('Локация назначения не найдена.','danger'); return redirect(url_for('requests_list'))
 
         groups={}
         for bid,total in batch_totals.items():
@@ -1283,6 +1315,15 @@ def create_app():
                 flash('Активная заявка не найдена.', 'warning')
                 return redirect(url_for('requests_list'))
 
+        request_target_location = None
+        if transfer_request:
+            request_target_location = find_location_by_code(
+                transfer_request.to_location_code or OPERATING_ROOM_LOCATION_CODE
+            )
+            if not request_target_location:
+                flash('Локация назначения не найдена.', 'danger')
+                return redirect(url_for('requests_list'))
+
         if request.method == 'POST':
             from_location_code = request.form.get(
                 'from_location', ''
@@ -1295,11 +1336,7 @@ def create_app():
             note = request.form.get('note', '').strip()
 
             if transfer_request:
-                to_location_code = (
-                    transfer_request.to_location_code or '03'
-                )
-                if to_location_code == 'oper':
-                    to_location_code = '03'
+                to_location_code = request_target_location.code
 
             def error_url():
                 if transfer_request:
@@ -1313,20 +1350,17 @@ def create_app():
                 flash('Выберите обе локации.', 'danger')
                 return redirect(error_url())
 
-            if from_location_code == to_location_code:
-                flash('Локации должны быть разными.', 'danger')
-                return redirect(error_url())
-
             from_loc = Location.query.filter_by(
                 code=from_location_code
             ).first()
 
-            to_loc = Location.query.filter_by(
-                code=to_location_code
-            ).first()
+            to_loc = find_location_by_code(to_location_code)
 
             if not from_loc or not to_loc:
                 flash('Локация не найдена.', 'danger')
+                return redirect(error_url())
+            if from_loc.id == to_loc.id:
+                flash('Локации должны быть разными.', 'danger')
                 return redirect(error_url())
 
             batch_ids = request.form.getlist('batch_id[]')
@@ -1535,7 +1569,10 @@ def create_app():
         return render_template(
             'transfer_form.html',
             locations=locations_list,
-            transfer_request=transfer_request
+            transfer_request=transfer_request,
+            request_target_code=(
+                request_target_location.code if request_target_location else None
+            )
         )
 
 
@@ -1544,13 +1581,15 @@ def create_app():
     @login_required
     def api_batches_by_location():
         location_code = request.args.get('location', '').strip()
-        if current_user.role == 'xray_lab' and location_code != OPERATING_ROOM_LOCATION_CODE:
-            return []
         if not location_code:
             return []
-        location = Location.query.filter_by(code=location_code).first()
+        location = find_location_by_code(location_code)
         if not location:
             return []
+        if current_user.role == 'xray_lab':
+            operating_room = find_operating_room_location()
+            if not operating_room or location.id != operating_room.id:
+                return []
         batches = Batch.query.filter(
             Batch.location_id == location.id, Batch.is_active == True,
             Batch.quantity - Batch.used > 0
