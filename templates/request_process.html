@@ -1,0 +1,700 @@
+{% extends "base.html" %}
+
+{% block title %}Обработка заявки №{{ request_obj.id }} — Склад{% endblock %}
+
+{% block content %}
+
+<div class="alert alert-primary">
+    <h2 class="mb-3">Обработка заявки №{{ request_obj.id }}</h2>
+
+    {% for i in items %}
+    <div class="mb-1">
+        <strong>{{ i.material.name }} {{ i.material.size or '' }}</strong>
+        — запрошено {{ i.requested_quantity }} шт.
+    </div>
+    {% endfor %}
+</div>
+
+
+<form method="POST" id="processForm">
+
+    <input type="hidden"
+           name="csrf_token"
+           value="{{ csrf_token() }}">
+
+
+    {% for i in items %}
+
+    <div class="card mb-3 item-card"
+         data-iid="{{ i.id }}"
+         data-mid="{{ i.material_id }}"
+         data-requested="{{ i.requested_quantity }}"
+         data-requested-name="{{ i.material.name }}"
+         data-requested-size="{{ i.material.size or '' }}"
+         data-issued="{{ i.transferred_material_id or i.material_id }}">
+
+        <div class="card-header">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+
+                <div>
+                    <strong>
+                        Запрошено:
+                        {{ i.material.name }}
+                        {{ i.material.size or '' }}
+                    </strong>
+                </div>
+
+                <span class="badge bg-secondary">
+                    {{ i.requested_quantity }} шт.
+                </span>
+
+            </div>
+        </div>
+
+
+        <div class="card-body">
+
+            <div class="mb-3">
+                <label class="form-label">
+                    <strong>Материал для выдачи *</strong>
+                </label>
+
+                <select class="form-select issued-material" required>
+                    <option value="">
+                        — Выберите фактический материал —
+                    </option>
+                </select>
+
+                <div class="form-text material-help">
+                    Можно выбрать другой материал, если запрошенного нет в наличии.
+                </div>
+
+                <input type="hidden"
+                       name="issued_material_id[]"
+                       class="issued-material-hidden"
+                       value="{{ i.transferred_material_id or i.material_id }}">
+            </div>
+
+
+            <div class="lines"></div>
+
+
+            <button type="button"
+                    class="btn btn-sm btn-outline-primary addline">
+                Добавить источник / партию
+            </button>
+
+        </div>
+    </div>
+
+    {% endfor %}
+
+
+    <div class="alert alert-light border">
+        <strong>Внимание:</strong>
+        врач-кладовщик сам устанавливает фактическое количество.
+        Оно может быть больше или меньше запрошенного.
+        Ограничение только по реальному остатку выбранных партий.
+    </div>
+
+
+    <div class="mb-3">
+        <label class="form-label">
+            Примечание к перемещению
+        </label>
+
+        <input class="form-control"
+               name="note"
+               value="{{ request_obj.note or '' }}">
+    </div>
+
+
+    <button class="btn btn-success btn-lg"
+            type="submit">
+        Подтвердить перемещение и выполнить заявку
+    </button>
+
+    <a href="/requests"
+       class="btn btn-secondary btn-lg">
+        Отмена
+    </a>
+
+</form>
+
+
+<script>
+(() => {
+
+    const availableMaterials = {{ available_materials|tojson }};
+
+    const sources = [
+        {% for x in sources %}
+        {
+            code: {{ x.code|tojson }},
+            desc: {{ (x.description or '')|tojson }}
+        }
+        {% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+
+    async function loadBatches(locationCode) {
+        const response = await fetch(
+            `/api/batches-by-location?location=${encodeURIComponent(locationCode)}`
+        );
+
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+
+        return response.json();
+    }
+
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+
+    function materialLabel(m) {
+        const size = m.size ? ` ${m.size}` : '';
+        const availability = Number(m.available || 0);
+
+        return `${m.name}${size} — доступно ${availability} шт.`;
+    }
+
+
+    function getMaterialById(id) {
+        return availableMaterials.find(
+            m => Number(m.id) === Number(id)
+        );
+    }
+
+
+    function fillMaterialSelect(card) {
+
+        const select = card.querySelector('.issued-material');
+        const requestedId = Number(card.dataset.mid);
+        const currentIssuedId = Number(
+            card.dataset.issued || requestedId
+        );
+
+        let html = '<option value="">— Выберите фактический материал —</option>';
+
+        let requestedExists = false;
+
+        for (const m of availableMaterials) {
+
+            const id = Number(m.id);
+
+            if (id === requestedId) {
+                requestedExists = true;
+            }
+
+            const selected =
+                id === currentIssuedId ? ' selected' : '';
+
+            html += `
+                <option value="${id}"${selected}>
+                    ${escapeHtml(materialLabel(m))}
+                </option>
+            `;
+        }
+
+
+        /*
+         * Если запрошенного материала сейчас нет ни на одном складе,
+         * всё равно показываем его в списке.
+         *
+         * Выдать его не получится, пока нет партии, но врач-кладовщик
+         * сразу увидит, что можно выбрать другой материал.
+         */
+        if (!requestedExists) {
+
+            const requestedName =
+                card.dataset.requestedName || 'Запрошенный материал';
+
+            const requestedSize =
+                card.dataset.requestedSize || '';
+
+            const requestedLabel =
+                `${requestedName}${requestedSize ? ' ' + requestedSize : ''} — сейчас нет в наличии`;
+
+            const selected =
+                requestedId === currentIssuedId
+                    ? ' selected'
+                    : '';
+
+            html =
+                `
+                <option value="${requestedId}"${selected}>
+                    ${escapeHtml(requestedLabel)}
+                </option>
+                `
+                + html;
+        }
+
+
+        select.innerHTML = html;
+
+
+        /*
+         * Если текущий фактический материал больше не доступен,
+         * возвращаемся к запрошенному материалу.
+         */
+        if (!getMaterialById(currentIssuedId) &&
+            currentIssuedId !== requestedId) {
+
+            card.dataset.issued = String(requestedId);
+            select.value = String(requestedId);
+        }
+
+
+        updateHiddenMaterialIds(card);
+    }
+
+
+    function updateHiddenMaterialIds(card) {
+
+        const select = card.querySelector('.issued-material');
+        const materialId = select.value;
+
+        const hidden = card.querySelector('.issued-material-hidden');
+
+        if (hidden) {
+            hidden.value = materialId;
+        }
+    }
+
+
+    function sourceOptions() {
+
+        let html =
+            '<option value="">— Выберите источник —</option>';
+
+        for (const source of sources) {
+
+            html += `
+                <option value="${escapeHtml(source.code)}">
+                    ${escapeHtml(source.code)}
+                    — ${escapeHtml(source.desc)}
+                </option>
+            `;
+        }
+
+        return html;
+    }
+
+
+    function addLine(card, initialQuantity) {
+
+        const box = card.querySelector('.lines');
+
+        const row = document.createElement('div');
+
+        row.className =
+            'row g-2 align-items-end mb-2 transfer-line';
+
+
+        const currentMaterial =
+            card.querySelector('.issued-material').value
+            || card.dataset.mid;
+
+
+        row.innerHTML = `
+            <div class="col-md-4">
+                <label class="form-label">
+                    Откуда *
+                </label>
+
+                <select class="form-select src" required>
+                    ${sourceOptions()}
+                </select>
+            </div>
+
+
+            <div class="col-md-5">
+
+                <label class="form-label">
+                    Партия *
+                </label>
+
+                <select class="form-select bat"
+                        name="batch_id[]"
+                        required>
+
+                    <option value="">
+                        — Сначала выберите источник —
+                    </option>
+
+                </select>
+
+                <div class="form-text help"></div>
+
+            </div>
+
+
+            <div class="col-md-2">
+
+                <label class="form-label">
+                    Передать *
+                </label>
+
+                <input class="form-control qty"
+                       type="number"
+                       name="qty[]"
+                       min="1"
+                       value="${Number(initialQuantity) || 1}"
+                       required>
+
+            </div>
+
+
+            <div class="col-md-1">
+
+                <button type="button"
+                        class="btn btn-outline-danger del">
+                    Удалить
+                </button>
+
+            </div>
+
+
+            <input type="hidden"
+                   name="request_item_id[]"
+                   value="${card.dataset.iid}">
+
+        `;
+
+
+        box.appendChild(row);
+
+
+        const sourceSelect =
+            row.querySelector('.src');
+
+        const batchSelect =
+            row.querySelector('.bat');
+
+        const quantityInput =
+            row.querySelector('.qty');
+
+        const help =
+            row.querySelector('.help');
+
+
+        sourceSelect.onchange = async () => {
+
+            batchSelect.innerHTML =
+                '<option value="">Загрузка...</option>';
+
+            batchSelect.disabled = true;
+
+
+            const materialId =
+                Number(
+                    card.querySelector('.issued-material').value
+                );
+
+
+            if (!materialId) {
+
+                batchSelect.innerHTML =
+                    '<option value="">Сначала выберите материал</option>';
+
+                batchSelect.disabled = false;
+
+                return;
+            }
+
+
+            try {
+
+                const allBatches =
+                    await loadBatches(sourceSelect.value);
+
+
+                const batches =
+                    allBatches.filter(
+                        b =>
+                            Number(b.material_id) === materialId
+                    );
+
+
+                if (!batches.length) {
+
+                    batchSelect.innerHTML =
+                        '<option value="">Материала нет на этой локации</option>';
+
+                    quantityInput.removeAttribute('max');
+
+                    help.textContent =
+                        'Для выбранного материала на этой локации нет доступных партий.';
+
+                    batchSelect.disabled = false;
+
+                    return;
+                }
+
+
+                batchSelect.innerHTML =
+                    '<option value="">— Выберите партию —</option>'
+                    +
+                    batches.map(b => `
+                        <option value="${b.id}"
+                                data-max="${b.remaining}">
+                            партия #${b.id}
+                            — остаток ${b.remaining}
+                            — срок ${escapeHtml(b.expiry)}
+                        </option>
+                    `).join('');
+
+
+                /*
+                 * Для удобства автоматически выбираем первую партию.
+                 */
+                const first =
+                    [...batchSelect.options]
+                        .find(option => option.value);
+
+
+                if (first) {
+
+                    batchSelect.value =
+                        first.value;
+
+                    batchSelect.dispatchEvent(
+                        new Event('change')
+                    );
+                }
+
+            } catch (error) {
+
+                batchSelect.innerHTML =
+                    '<option value="">Ошибка загрузки</option>';
+
+                help.textContent =
+                    'Не удалось загрузить партии.';
+
+            } finally {
+
+                batchSelect.disabled = false;
+            }
+        };
+
+
+        batchSelect.onchange = () => {
+
+            const option =
+                batchSelect.options[
+                    batchSelect.selectedIndex
+                ];
+
+            const max =
+                Number(
+                    option?.dataset?.max || 0
+                );
+
+
+            if (max) {
+
+                quantityInput.max =
+                    String(max);
+
+                if (Number(quantityInput.value) > max) {
+                    quantityInput.value =
+                        String(max);
+                }
+
+                help.textContent =
+                    `Доступно в партии: ${max} шт.`;
+
+            } else {
+
+                quantityInput.removeAttribute('max');
+                help.textContent = '';
+            }
+        };
+
+
+        row.querySelector('.del').onclick = () => {
+            row.remove();
+        };
+    }
+
+
+    /*
+     * Смена фактического материала.
+     */
+    for (const card of document.querySelectorAll('.item-card')) {
+
+        const materialSelect =
+            card.querySelector('.issued-material');
+
+
+        fillMaterialSelect(card);
+
+
+        materialSelect.onchange = () => {
+
+            card.dataset.issued =
+                materialSelect.value;
+
+            updateHiddenMaterialIds(card);
+
+
+            /*
+             * После смены материала старые партии нельзя оставлять,
+             * потому что они принадлежат предыдущему материалу.
+             */
+            const rows =
+                card.querySelectorAll('.transfer-line');
+
+
+            for (const row of rows) {
+
+                const batchSelect =
+                    row.querySelector('.bat');
+
+                batchSelect.innerHTML =
+                    '<option value="">— Сначала выберите источник —</option>';
+
+                row.querySelector('.help').textContent = '';
+
+                row.querySelector('.qty')
+                    .removeAttribute('max');
+            }
+
+
+            const material =
+                getMaterialById(
+                    Number(materialSelect.value)
+                );
+
+
+            const help =
+                card.querySelector('.material-help');
+
+
+            if (material) {
+
+                help.textContent =
+                    `Доступно на других локациях: ${material.available} шт.`;
+
+            } else {
+
+                help.textContent =
+                    'У выбранного материала сейчас нет доступного остатка.';
+            }
+
+
+            updateHiddenMaterialIds(card);
+        };
+
+
+        /*
+         * Для каждой позиции первоначально создаём одну строку
+         * источника/партии.
+         */
+        addLine(
+            card,
+            Number(card.dataset.requested || 1)
+        );
+
+
+        card.querySelector('.addline').onclick = () => {
+            addLine(card, 1);
+        };
+    }
+
+
+    /*
+     * Проверка формы перед отправкой.
+     */
+    document
+        .getElementById('processForm')
+        .onsubmit = (event) => {
+
+            const cards =
+                document.querySelectorAll('.item-card');
+
+
+            for (const card of cards) {
+
+                const materialId =
+                    card.querySelector('.issued-material').value;
+
+                if (!materialId) {
+
+                    event.preventDefault();
+
+                    alert(
+                        'Для каждой позиции выберите материал для выдачи.'
+                    );
+
+                    return;
+                }
+
+
+                const rows =
+                    card.querySelectorAll('.transfer-line');
+
+
+                if (!rows.length) {
+
+                    event.preventDefault();
+
+                    alert(
+                        'Для каждой позиции добавьте хотя бы одну партию.'
+                    );
+
+                    return;
+                }
+
+
+                for (const row of rows) {
+
+                    const batch =
+                        row.querySelector('.bat');
+
+                    const quantity =
+                        row.querySelector('.qty');
+
+                    const value =
+                        Number(quantity.value);
+
+                    const max =
+                        Number(quantity.max || 0);
+
+
+                    if (
+                        !batch.value ||
+                        !Number.isInteger(value) ||
+                        value < 1 ||
+                        (max && value > max)
+                    ) {
+
+                        event.preventDefault();
+
+                        alert(
+                            'Проверьте партии и фактические количества.'
+                        );
+
+                        return;
+                    }
+                }
+
+
+                updateHiddenMaterialIds(card);
+            }
+        };
+
+})();
+</script>
+
+{% endblock %}

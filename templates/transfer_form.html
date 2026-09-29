@@ -1,100 +1,557 @@
-cat > templates/transfer_form.html << 'ENDOFFILE'
 {% extends "base.html" %}
-{% block title %}Новое перемещение — Склад{% endblock %}
+
+{% block title %}
+{% if transfer_request %}
+Обработка заявки №{{ transfer_request.id }} — Склад
+{% else %}
+Новое перемещение — Склад
+{% endif %}
+{% endblock %}
+
 {% block content %}
-<h1><i class="bi bi-arrow-left-right"></i> Перемещение материалов</h1>
+
+{% if transfer_request %}
+<div class="alert alert-primary">
+    <strong>
+        <i class="bi bi-send-check"></i>
+        Обработка заявки №{{ transfer_request.id }}
+    </strong>
+
+    <div class="mt-1">
+        Материал:
+        <strong>
+            {{ transfer_request.material.name }}
+            {{ transfer_request.material.size or '' }}
+        </strong>
+        · количество:
+        <strong>{{ transfer_request.quantity }} шт.</strong>
+    </div>
+
+    {% if transfer_request.note %}
+    <div class="mt-1">
+        Примечание: {{ transfer_request.note }}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<h1>
+    <i class="bi bi-arrow-left-right"></i>
+    {% if transfer_request %}
+        Перемещение по заявке №{{ transfer_request.id }}
+    {% else %}
+        Перемещение материалов
+    {% endif %}
+</h1>
 
 <div class="card">
     <div class="card-body">
         <form method="POST" id="transferForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            {% if transfer_request %}
+            <input type="hidden" name="request_id"
+                   value="{{ transfer_request.id }}">
+            {% endif %}
+
             <div class="row mb-3">
+
                 <div class="col-md-4">
-                    <label for="from_location" class="form-label">Откуда *</label>
-                    <select class="form-select" id="from_location" name="from_location" required onchange="loadBatches()">
+                    <label for="from_location" class="form-label">
+                        Откуда *
+                    </label>
+
+                    <select class="form-select"
+                            id="from_location"
+                            name="from_location"
+                            required
+                            onchange="loadBatches()">
                         <option value="">— Выберите локацию —</option>
+
                         {% for loc in locations %}
-                        <option value="{{ loc.code }}">{{ loc.code }} — {{ loc.description }}</option>
+                        <option value="{{ loc.code }}"
+                                {% if transfer_request and transfer_request.from_location_code == loc.code %}
+                                selected
+                                {% endif %}>
+                            {{ loc.code }} — {{ loc.description }}
+                        </option>
                         {% endfor %}
                     </select>
                 </div>
+
                 <div class="col-md-4">
-                    <label for="to_location" class="form-label">Куда *</label>
-                    <select class="form-select" id="to_location" name="to_location" required>
+                    <label for="to_location" class="form-label">
+                        Куда *
+                    </label>
+
+                    <select class="form-select"
+                            id="to_location"
+                            name="to_location"
+                            required>
                         <option value="">— Выберите локацию —</option>
+
                         {% for loc in locations %}
-                        <option value="{{ loc.code }}">{{ loc.code }} — {{ loc.description }}</option>
+                        <option value="{{ loc.code }}"
+                                {% if transfer_request %}
+                                    {% if transfer_request.to_location_code == loc.code %}
+                                    selected
+                                    {% elif (transfer_request.to_location_code == 'oper' or not transfer_request.to_location_code) and loc.code == '03' %}
+                                    selected
+                                    {% endif %}
+                                {% endif %}>
+                            {{ loc.code }} — {{ loc.description }}
+                        </option>
                         {% endfor %}
                     </select>
+
+                    {% if transfer_request %}
+                    <div class="form-text">
+                        Для заявки назначение — «Операционная».
+                    </div>
+                    {% endif %}
                 </div>
+
                 <div class="col-md-4">
-                    <label for="note" class="form-label">Примечание</label>
-                    <input type="text" class="form-control" id="note" name="note" placeholder="Причина перемещения">
+                    <label for="note" class="form-label">
+                        Примечание
+                    </label>
+
+                    <input type="text"
+                           class="form-control"
+                           id="note"
+                           name="note"
+                           maxlength="500"
+                           value="{{ transfer_request.note if transfer_request else '' }}"
+                           placeholder="Причина перемещения">
                 </div>
             </div>
 
             <h5>Материалы для перемещения:</h5>
+
+            {% if transfer_request %}
+            <div class="alert alert-secondary py-2">
+                <i class="bi bi-lightbulb"></i>
+                Материал из заявки будет выбран автоматически после
+                выбора локации-источника.
+            </div>
+            {% endif %}
+
             <div id="batchesList"></div>
 
-            <button type="button" class="btn btn-outline-primary btn-sm mb-3" onclick="addBatchRow()">
+            <button type="button"
+                    class="btn btn-outline-primary btn-sm mb-3"
+                    onclick="addBatchRow()">
                 <i class="bi bi-plus"></i> Добавить позицию
             </button>
+
             <br>
-            <button type="submit" class="btn btn-success btn-lg"><i class="bi bi-check-circle"></i> Выполнить перемещение</button>
-            <a href="/transfers" class="btn btn-secondary btn-lg">Отмена</a>
+
+            <button type="submit"
+                    class="btn btn-success btn-lg">
+                <i class="bi bi-check-circle"></i>
+                {% if transfer_request %}
+                    Подтвердить перемещение и выполнить заявку
+                {% else %}
+                    Выполнить перемещение
+                {% endif %}
+            </button>
+
+            <a href="/requests"
+               class="btn btn-secondary btn-lg">
+                Отмена
+            </a>
         </form>
     </div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
 let availableBatches = [];
-let rowIndex = 0;
+
+const requestId =
+    {{ transfer_request.id if transfer_request else 'null' }};
+
+const requestMaterialId =
+    {{ transfer_request.material_id if transfer_request else 'null' }};
+
+const requestQuantity =
+    {{ transfer_request.quantity if transfer_request else 0 }};
+
 
 function loadBatches() {
-    const code = document.getElementById('from_location').value;
+    const code =
+        document.getElementById('from_location').value;
+
+    const container =
+        document.getElementById('batchesList');
+
+    container.innerHTML = '';
+    availableBatches = [];
+
     if (!code) return;
-    fetch('/api/batches-by-location?location=' + code)
-        .then(r => r.json())
-        .then(data => {
-            availableBatches = data;
-            document.getElementById('batchesList').innerHTML = '';
-            rowIndex = 0;
-            addBatchRow();
-        });
-}
 
-function addBatchRow() {
-    const container = document.getElementById('batchesList');
-    const row = document.createElement('div');
-    row.className = 'row mb-2';
-    let options = '<option value="">— Выберите партию —</option>';
-    availableBatches.forEach((b, i) => {
-        options += `<option value="${b.id}" data-max="${b.remaining}">${b.name} ${b.size} (ост: ${b.remaining}, срок: ${b.expiry})</option>`;
+    fetch(
+        '/api/batches-by-location?location=' +
+        encodeURIComponent(code),
+        {
+            headers: {
+                'X-CSRFToken': window.CSRF_TOKEN || ''
+            }
+        }
+    )
+    .then(r => {
+        if (!r.ok) {
+            throw new Error('Не удалось загрузить партии');
+        }
+        return r.json();
+    })
+    .then(data => {
+
+        availableBatches =
+            Array.isArray(data) ? data : [];
+
+        if (availableBatches.length === 0) {
+            container.innerHTML =
+                '<div class="alert alert-info">' +
+                'В выбранной локации нет доступных партий.' +
+                '</div>';
+            return;
+        }
+
+        if (requestId &&
+            requestMaterialId !== null) {
+
+            const requestedBatches =
+                availableBatches.filter(
+                    b =>
+                        String(b.material_id) ===
+                        String(requestMaterialId)
+                );
+
+            if (requestedBatches.length === 0) {
+                container.innerHTML =
+                    '<div class="alert alert-warning">' +
+                    'В выбранной локации нет нужного ' +
+                    'материала из заявки.' +
+                    '</div>';
+                return;
+            }
+
+            const totalAvailable =
+                requestedBatches.reduce(
+                    (sum, b) =>
+                        sum + Number(b.remaining || 0),
+                    0
+                );
+
+            if (totalAvailable < requestQuantity) {
+                container.innerHTML =
+                    '<div class="alert alert-warning">' +
+                    'В выбранной локации доступно только ' +
+                    totalAvailable +
+                    ' шт., а по заявке требуется ' +
+                    requestQuantity +
+                    ' шт.' +
+                    '</div>';
+            }
+
+            addBatchRow(
+                requestMaterialId,
+                Math.min(
+                    requestQuantity,
+                    totalAvailable
+                )
+            );
+
+            return;
+        }
+
+        addBatchRow(null, 1);
+    })
+    .catch(err => {
+        console.error(err);
+
+        container.innerHTML =
+            '<div class="alert alert-danger">' +
+            'Не удалось загрузить партии.' +
+            '</div>';
     });
-    row.innerHTML = `
-        <div class="col-md-6">
-            <select class="form-select batch-select" name="batch_id_${rowIndex}" onchange="updateMax(this)" required>${options}</select>
-        </div>
-        <div class="col-md-3">
-            <input type="number" class="form-control qty-input" name="qty_${rowIndex}" min="1" value="1" required>
-        </div>
-        <div class="col-md-3">
-            <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.parentElement.parentElement.remove()"><i class="bi bi-trash"></i></button>
-        </div>
-    `;
-    container.appendChild(row);
-    rowIndex++;
 }
 
-function updateMax(select) {
-    const max = select.options[select.selectedIndex]?.dataset?.max || 0;
-    const qtyInput = select.parentElement.parentElement.querySelector('.qty-input');
-    if (qtyInput) {
-        qtyInput.max = max;
-        if (parseInt(qtyInput.value) > max) qtyInput.value = max;
+
+function addBatchRow(
+    prefillMaterialId = null,
+    prefillQuantity = 1
+) {
+    if (!availableBatches.length) return;
+
+    const container =
+        document.getElementById('batchesList');
+
+    const row =
+        document.createElement('div');
+
+    row.className =
+        'row mb-2 transfer-row';
+
+    const selectCol =
+        document.createElement('div');
+
+    selectCol.className =
+        'col-md-6';
+
+    const select =
+        document.createElement('select');
+
+    select.className =
+        'form-select batch-select';
+
+    select.name =
+        'batch_id[]';
+
+    select.required =
+        true;
+
+    select.addEventListener(
+        'change',
+        () => updateMax(select)
+    );
+
+    const placeholder =
+        document.createElement('option');
+
+    placeholder.value = '';
+    placeholder.textContent =
+        '— Выберите партию —';
+
+    select.appendChild(placeholder);
+
+    availableBatches.forEach(b => {
+
+        const option =
+            document.createElement('option');
+
+        option.value =
+            String(b.id);
+
+        option.dataset.materialId =
+            String(b.material_id || '');
+
+        option.dataset.max =
+            String(Number(b.remaining) || 0);
+
+        option.textContent =
+            `${b.name} ${b.size} ` +
+            `(ост: ${b.remaining}, ` +
+            `срок: ${b.expiry})`;
+
+        select.appendChild(option);
+    });
+
+    if (prefillMaterialId !== null) {
+
+        const match =
+            Array.from(select.options).find(
+                option =>
+                    option.dataset.materialId ===
+                    String(prefillMaterialId)
+            );
+
+        if (match) {
+            match.selected = true;
+        }
+    }
+
+    selectCol.appendChild(select);
+
+    const qtyCol =
+        document.createElement('div');
+
+    qtyCol.className =
+        'col-md-3';
+
+    const qty =
+        document.createElement('input');
+
+    qty.type = 'number';
+    qty.className =
+        'form-control qty-input';
+
+    qty.name =
+        'qty[]';
+
+    qty.min = '1';
+    qty.step = '1';
+    qty.value = '1';
+    qty.required = true;
+
+    qtyCol.appendChild(qty);
+
+    const actionCol =
+        document.createElement('div');
+
+    actionCol.className =
+        'col-md-3';
+
+    const remove =
+        document.createElement('button');
+
+    remove.type = 'button';
+
+    remove.className =
+        'btn btn-sm btn-outline-danger';
+
+    remove.innerHTML =
+        '<i class="bi bi-trash"></i>';
+
+    remove.addEventListener(
+        'click',
+        () => row.remove()
+    );
+
+    actionCol.appendChild(remove);
+
+    row.appendChild(selectCol);
+    row.appendChild(qtyCol);
+    row.appendChild(actionCol);
+
+    container.appendChild(row);
+
+    if (select.value) {
+
+        updateMax(select);
+
+        const option =
+            select.options[
+                select.selectedIndex
+            ];
+
+        const max =
+            Number(option?.dataset?.max || 0);
+
+        if (prefillQuantity > 0) {
+            qty.value =
+                String(
+                    Math.min(
+                        prefillQuantity,
+                        max || prefillQuantity
+                    )
+                );
+        }
     }
 }
+
+
+function updateMax(select) {
+
+    const max =
+        Number(
+            select.options[
+                select.selectedIndex
+            ]?.dataset?.max || 0
+        );
+
+    const qtyInput =
+        select.closest('.transfer-row')
+        ?.querySelector('.qty-input');
+
+    if (!qtyInput) return;
+
+    qtyInput.max =
+        String(max);
+
+    if (Number(qtyInput.value) > max) {
+        qtyInput.value =
+            String(max);
+    }
+}
+
+
+document
+    .getElementById('transferForm')
+    .addEventListener(
+        'submit',
+        function (event) {
+
+            const from =
+                document.getElementById(
+                    'from_location'
+                ).value;
+
+            const to =
+                document.getElementById(
+                    'to_location'
+                ).value;
+
+            const rows =
+                document.querySelectorAll(
+                    '.transfer-row'
+                );
+
+            if (from &&
+                to &&
+                from === to) {
+
+                event.preventDefault();
+
+                alert(
+                    'Локация отправления и назначения ' +
+                    'должны отличаться.'
+                );
+
+                return;
+            }
+
+            if (rows.length === 0) {
+
+                event.preventDefault();
+
+                alert(
+                    'Добавьте хотя бы одну партию ' +
+                    'для перемещения.'
+                );
+
+                return;
+            }
+
+            for (const row of rows) {
+
+                const select =
+                    row.querySelector(
+                        '.batch-select'
+                    );
+
+                const qty =
+                    row.querySelector(
+                        '.qty-input'
+                    );
+
+                const max =
+                    Number(qty.max || 0);
+
+                const value =
+                    Number(qty.value);
+
+                if (
+                    !select.value ||
+                    !Number.isInteger(value) ||
+                    value < 1 ||
+                    (max > 0 && value > max)
+                ) {
+
+                    event.preventDefault();
+
+                    alert(
+                        'Проверьте выбранные партии ' +
+                        'и количество.'
+                    );
+
+                    return;
+                }
+            }
+        }
+    );
 </script>
 {% endblock %}
-ENDOFFILE

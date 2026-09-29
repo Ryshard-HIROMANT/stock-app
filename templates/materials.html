@@ -1,130 +1,95 @@
 {% extends "base.html" %}
 
-{% block title %}{{ 'Редактировать' if material else 'Добавить' }} материал — Склад{% endblock %}
+{% block title %}Материалы — Склад{% endblock %}
 
 {% block content %}
-<h1>
-    {% if material %}
-        <i class="bi bi-pencil"></i> Редактировать: {{ material.name }}
-    {% else %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1><i class="bi bi-box"></i> Материалы</h1>
+    {% if current_user.is_admin() %}
+    <a href="/materials/add" class="btn btn-success">
         <i class="bi bi-plus-circle"></i> Добавить материал
+    </a>
     {% endif %}
-</h1>
+</div>
+
+<form method="GET" class="card card-body mb-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-md-5">
+            <label for="search" class="form-label">Поиск</label>
+            <input type="search" class="form-control" id="search" name="search"
+                   value="{{ search }}" placeholder="Название, размер или QR-код">
+        </div>
+        <div class="col-md-3">
+            <label for="category_id" class="form-label">Категория</label>
+            <select class="form-select" id="category_id" name="category_id">
+                <option value="">Все категории</option>
+                {% for category in categories %}
+                <option value="{{ category.id }}" {% if selected_category|string == category.id|string %}selected{% endif %}>
+                    {{ category.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label for="reusable" class="form-label">Использование</label>
+            <select class="form-select" id="reusable" name="reusable">
+                <option value="">Все</option>
+                <option value="1" {% if request.args.get('reusable') == '1' %}selected{% endif %}>Многоразовые</option>
+                <option value="0" {% if request.args.get('reusable') == '0' %}selected{% endif %}>Одноразовые</option>
+            </select>
+        </div>
+        <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1">Найти</button>
+            <a href="/materials" class="btn btn-outline-secondary">Сбросить</a>
+        </div>
+    </div>
+</form>
 
 <div class="card">
-    <div class="card-body">
-        <form method="POST">
-            <div class="mb-3">
-                <label for="name" class="form-label">Название *</label>
-                <input type="text" class="form-control" id="name" name="name"
-                       value="{{ material.name if material else '' }}" required>
-            </div>
-            <div class="mb-3">
-                <label for="size" class="form-label">Размер (5F, 6F и т.д.)</label>
-                <input type="text" class="form-control" id="size" name="size"
-                       value="{{ material.size if material else '' }}">
-            </div>
-            <div class="mb-3">
-                <label for="barcode" class="form-label">QR-код * <span class="text-danger">(обязательно)</span></label>
-                <div class="input-group">
-                    <input type="text" class="form-control" id="barcode" name="barcode"
-                           value="{{ material.barcode if material else (prefill_barcode or '') }}"
-                           placeholder="Введите или отсканируйте QR-код" required>
-                    <button type="button" class="btn btn-outline-primary" id="scanBarcodeBtn" title="Сканировать">
-                        <i class="bi bi-camera"></i>
-                    </button>
-                </div>
-                <div class="form-text text-muted">
-                    <i class="bi bi-info-circle"></i> Материал без QR-кода создать нельзя.
-                </div>
-                <div id="barcodeScannerContainer" style="display:none; margin-top: 10px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
-                    <div id="barcodeMiniScanner" style="width: 100%; max-width: 300px; margin: 0 auto;"></div>
-                    <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopBarcodeScannerBtn">
-                        <i class="bi bi-stop-circle"></i> Остановить
-                    </button>
-                </div>
-            </div>
-            <div class="mb-3">
-                <label for="category_id" class="form-label">Категория</label>
-                <select class="form-select" id="category_id" name="category_id">
-                    <option value="">— Без категории —</option>
-                    {% for cat in categories %}
-                    <option value="{{ cat.id }}" {% if material and material.category_id == cat.id %}selected{% endif %}>
-                        {{ cat.name }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="mb-3">
-                <label for="min_stock" class="form-label">Минимальный остаток</label>
-                <input type="number" class="form-control" id="min_stock" name="min_stock"
-                       value="{{ material.min_stock if material else '0' }}" min="0">
-            </div>
-            <div class="mb-3 form-check">
-                <input type="checkbox" class="form-check-input" id="is_reusable" name="is_reusable" value="1"
-                       {% if material and material.is_reusable %}checked{% endif %}>
-                <label for="is_reusable" class="form-check-label">Повторное использование (стерилизация)</label>
-            </div>
-            <div class="mb-3">
-                <label for="note" class="form-label">Примечание</label>
-                <textarea class="form-control" id="note" name="note" rows="2">{{ material.note if material else '' }}</textarea>
-            </div>
-            <button type="submit" class="btn btn-primary">
-                <i class="bi bi-check-circle"></i> {{ 'Сохранить' if material else 'Добавить' }}
-            </button>
-            <a href="/materials" class="btn btn-secondary">Отмена</a>
-        </form>
+    <div class="card-body table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>Материал</th>
+                    <th>Категория</th>
+                    <th>QR-код</th>
+                    <th>Тип</th>
+                    <th>Мин. остаток</th>
+                    {% if current_user.is_admin() %}<th>Действия</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for material in materials %}
+                <tr>
+                    <td><strong>{{ material.name }}</strong>{% if material.size %} {{ material.size }}{% endif %}</td>
+                    <td>{{ material.category_rel.name if material.category_rel else '—' }}</td>
+                    <td>{{ material.barcode or '—' }}</td>
+                    <td>{{ 'Многоразовый' if material.is_reusable else 'Одноразовый' }}</td>
+                    <td>{{ material.min_stock or 0 }}</td>
+                    {% if current_user.is_admin() %}
+                    <td class="text-nowrap">
+                        <a href="/materials/{{ material.id }}/edit" class="btn btn-sm btn-warning" title="Редактировать">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                        <form method="POST" action="/materials/{{ material.id }}/delete" class="d-inline"
+                              onsubmit="return confirm('Удалить материал «{{ material.name }}»?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-danger" title="Удалить">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="{{ 6 if current_user.is_admin() else 5 }}" class="text-center text-muted">
+                        Материалы не найдены
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-let barcodeScanner = null;
-const scanBtn = document.getElementById('scanBarcodeBtn');
-const stopBtn = document.getElementById('stopBarcodeScannerBtn');
-const scannerContainer = document.getElementById('barcodeScannerContainer');
-const barcodeInput = document.getElementById('barcode');
-
-scanBtn.addEventListener('click', function() {
-    scannerContainer.style.display = 'block';
-    scanBtn.disabled = true;
-    barcodeScanner = new Html5Qrcode("barcodeMiniScanner");
-    barcodeScanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 150 } },
-        (decodedText) => {
-            barcodeInput.value = decodedText;
-            flashBorder('green');
-            stopBarcodeScanner();
-        },
-        () => {}
-    ).catch(err => {
-        alert('Ошибка камеры: ' + err.message);
-        scannerContainer.style.display = 'none';
-        scanBtn.disabled = false;
-    });
-});
-
-stopBtn.addEventListener('click', stopBarcodeScanner);
-
-function stopBarcodeScanner() {
-    if (barcodeScanner) {
-        barcodeScanner.stop().then(() => {
-            scannerContainer.style.display = 'none';
-            scanBtn.disabled = false;
-            barcodeScanner = null;
-        }).catch(() => {
-            scannerContainer.style.display = 'none';
-            scanBtn.disabled = false;
-            barcodeScanner = null;
-        });
-    }
-}
-
-function flashBorder(color) {
-    scannerContainer.style.borderColor = color;
-    setTimeout(() => { scannerContainer.style.borderColor = '#ccc'; }, 1000);
-}
-</script>
 {% endblock %}

@@ -1,9 +1,11 @@
 from datetime import datetime, date
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
+from sqlalchemy import CheckConstraint, Index
 from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
+OPERATING_ROOM_LOCATION_CODE = '03'
 
 
 # ──────────────────────────────────────────────
@@ -60,7 +62,16 @@ class User(UserMixin, db.Model):
         return self.role in ('admin', 'doctor_storekeeper')
 
     def is_storekeeper(self):
-        return self.role in ('admin', 'head_nurse', 'doctor_storekeeper')
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
+
+    def can_view_dashboard(self):
+        return self.role != 'xray_lab'
+
+    def can_view_catalog(self):
+        return self.role != 'xray_lab'
+
+    def can_use_scanner(self):
+        return self.role != 'xray_lab'
 
     def is_doctor(self):
         return self.role in ('admin', 'head', 'doctor_storekeeper', 'doctor')
@@ -72,13 +83,13 @@ class User(UserMixin, db.Model):
         return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper', 'doctor', 'xray_lab')
 
     def can_create_request(self):
-        return self.role in ('admin', 'head_nurse', 'doctor_storekeeper', 'xray_lab')
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
 
     def can_process_requests(self):
-        return self.role in ('admin', 'head_nurse', 'doctor_storekeeper')
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
 
     def can_revision(self):
-        return self.role in ('admin', 'doctor_storekeeper') or self.can_revision_extra
+        return self.role in ('admin', 'head_nurse', 'doctor_storekeeper')
 
     def can_reports(self):
         return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
@@ -87,13 +98,15 @@ class User(UserMixin, db.Model):
         return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
 
     def can_transfer(self):
-        return self.role in ('admin', 'doctor_storekeeper', 'head_nurse')
+        return self.role in ('admin', 'head', 'doctor_storekeeper', 'head_nurse')
 
-    def can_view_location_contents(self):
-        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
+    def can_view_location_contents(self, location_code=None):
+        if self.role == 'xray_lab':
+            return location_code in (None, OPERATING_ROOM_LOCATION_CODE)
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper', 'doctor')
 
     def can_view_low_stock(self):
-        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper')
+        return self.role in ('admin', 'head', 'head_nurse', 'doctor_storekeeper', 'doctor')
 
     def can_view_own_drafts(self):
         return self.role in ('admin', 'head_nurse', 'xray_lab')
@@ -148,6 +161,13 @@ class Material(db.Model):
 # ──────────────────────────────────────────────
 class Batch(db.Model):
     __tablename__ = 'batches'
+    __table_args__ = (
+        CheckConstraint('quantity >= 0', name='ck_batch_quantity_nonnegative'),
+        CheckConstraint('used >= 0', name='ck_batch_used_nonnegative'),
+        CheckConstraint('used <= quantity', name='ck_batch_used_lte_quantity'),
+        Index('ix_batches_material_location', 'material_id', 'location_id'),
+        Index('ix_batches_expiry_active', 'expiry_date', 'is_active'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     material_id = db.Column(db.Integer, db.ForeignKey('materials.id'), nullable=False)
@@ -187,6 +207,11 @@ class Batch(db.Model):
 # ──────────────────────────────────────────────
 class Transaction(db.Model):
     __tablename__ = 'transactions'
+    __table_args__ = (
+        Index('ix_transactions_operation_id', 'operation_id'),
+        Index('ix_transactions_created_at', 'created_at'),
+        Index('ix_transactions_batch_id', 'batch_id'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
@@ -197,6 +222,15 @@ class Transaction(db.Model):
     operation_id = db.Column(db.String(50))
     doctor_name = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    request_item_id = db.Column(
+        db.Integer,
+        db.ForeignKey('transfer_request_items.id')
+    )
+
+    request_item = db.relationship(
+        'TransferRequestItem',
+        foreign_keys=[request_item_id]
+    )
 
     def __repr__(self):
         return f'<Transaction {self.type} {self.quantity} by {self.user.username}>'
@@ -212,6 +246,7 @@ class Transfer(db.Model):
     from_location_id = db.Column(db.Integer, db.ForeignKey('locations.id'))
     to_location_id = db.Column(db.Integer, db.ForeignKey('locations.id'))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    request_id = db.Column(db.Integer, db.ForeignKey('transfer_requests.id'))
     note = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -231,8 +266,10 @@ class TransferItem(db.Model):
     transfer_id = db.Column(db.Integer, db.ForeignKey('transfers.id'), nullable=False)
     batch_id = db.Column(db.Integer, db.ForeignKey('batches.id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
+    request_item_id = db.Column(db.Integer, db.ForeignKey('transfer_request_items.id'))
 
     batch = db.relationship('Batch')
+    request_item = db.relationship('TransferRequestItem', foreign_keys=[request_item_id])
 
     def __repr__(self):
         return f'<TransferItem {self.quantity} of batch #{self.batch_id}>'
@@ -243,6 +280,10 @@ class TransferItem(db.Model):
 # ──────────────────────────────────────────────
 class TransferRequest(db.Model):
     __tablename__ = 'transfer_requests'
+    __table_args__ = (
+        Index('ix_transfer_requests_status', 'status'),
+        Index('ix_transfer_requests_created_at', 'created_at'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     from_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
@@ -257,16 +298,47 @@ class TransferRequest(db.Model):
     processed_at = db.Column(db.DateTime)
 
     material = db.relationship('Material')
+    items = db.relationship(
+        'TransferRequestItem', back_populates='request',
+        cascade='all, delete-orphan', lazy=True
+    )
 
     def __repr__(self):
         return f'<TransferRequest #{self.id} {self.material.name} x{self.quantity}>'
 
 
 # ──────────────────────────────────────────────
+# ──────────────────────────────────────────────
+# ПОЗИЦИИ ЗАЯВКИ НА ПЕРЕМЕЩЕНИЕ
+# ──────────────────────────────────────────────
+class TransferRequestItem(db.Model):
+    __tablename__ = 'transfer_request_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.Integer, db.ForeignKey('transfer_requests.id'), nullable=False)
+    material_id = db.Column(db.Integer, db.ForeignKey('materials.id'), nullable=False)
+    requested_quantity = db.Column(db.Integer, nullable=False)
+    transferred_quantity = db.Column(db.Integer)
+    note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    transferred_material_id = db.Column(db.Integer, db.ForeignKey('materials.id'))
+
+    request = db.relationship('TransferRequest', back_populates='items')
+    material = db.relationship('Material', foreign_keys=[material_id])
+    transferred_material = db.relationship('Material', foreign_keys=[transferred_material_id])
+
+    def __repr__(self):
+        return f'<TransferRequestItem #{self.id} request={self.request_id}>'
+
+
 # ПОДТВЕРЖДЕНИЕ СПИСАНИЯ
 # ──────────────────────────────────────────────
 class SpendingDraft(db.Model):
     __tablename__ = 'spending_drafts'
+    __table_args__ = (
+        Index('ix_spending_drafts_operation_id', 'operation_id'),
+        Index('ix_spending_drafts_status', 'status'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)

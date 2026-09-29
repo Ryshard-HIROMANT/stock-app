@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>{% block title %}Склад инструментов{% endblock %}</title>
@@ -28,16 +29,19 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
         <div class="container-fluid">
-            <a class="navbar-brand" href="/"><i class="bi bi-box-seam"></i> Склад</a>
+            <a class="navbar-brand" href="{% if current_user.is_authenticated and not current_user.can_view_dashboard() %}/locations{% else %}/{% endif %}"><i class="bi bi-box-seam"></i> Склад</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
+                    {% if not current_user.is_authenticated or current_user.can_view_dashboard() %}
                     <li class="nav-item"><a class="nav-link" href="/"><i class="bi bi-speedometer2"></i> Дашборд</a></li>
+                    {% endif %}
                     
                     {% if current_user.is_authenticated %}
                     <!-- Справочники -->
+                    {% if current_user.can_view_catalog() %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-journal-bookmark"></i> Справочники
@@ -48,6 +52,9 @@
                             <li><a class="dropdown-item" href="/locations"><i class="bi bi-geo-alt"></i> Локации</a></li>
                         </ul>
                     </li>
+                    {% else %}
+                    <li class="nav-item"><a class="nav-link" href="/locations"><i class="bi bi-geo-alt"></i> Операционная</a></li>
+                    {% endif %}
                     
                     <!-- Складские операции -->
                     <li class="nav-item dropdown">
@@ -76,13 +83,23 @@
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-send-check"></i> Заявки
+                            {% if pending_transfer_requests_count %}
+                            <span class="badge bg-danger rounded-pill ms-1">{{ pending_transfer_requests_count }}</span>
+                            {% endif %}
                         </a>
                         <ul class="dropdown-menu dropdown-menu-dark">
                             {% if current_user.can_view_own_drafts() %}
                             <li><a class="dropdown-item" href="/spending/my-drafts"><i class="bi bi-pencil-square"></i> Мои черновики</a></li>
                             {% endif %}
                             {% if current_user.can_create_request() or current_user.can_process_requests() %}
-                            <li><a class="dropdown-item" href="/requests"><i class="bi bi-send"></i> Заявки на перемещение</a></li>
+                            <li>
+                                <a class="dropdown-item" href="/requests">
+                                    <i class="bi bi-send"></i> Заявки на перемещение
+                                    {% if pending_transfer_requests_count %}
+                                    <span class="badge bg-danger rounded-pill ms-1">{{ pending_transfer_requests_count }}</span>
+                                    {% endif %}
+                                </a>
+                            </li>
                             {% endif %}
                             {% if current_user.can_confirm() %}
                             <li><a class="dropdown-item" href="/spending/confirm"><i class="bi bi-check-circle"></i> Подтверждение списаний</a></li>
@@ -91,7 +108,9 @@
                     </li>
                     {% endif %}
                     
+                    {% if current_user.can_use_scanner() %}
                     <li class="nav-item"><a class="nav-link" href="/scanner"><i class="bi bi-camera"></i> Сканер</a></li>
+                    {% endif %}
                                         {% if current_user.can_view_journal() %}
                     <li class="nav-item"><a class="nav-link" href="/transactions"><i class="bi bi-journal-text"></i> Журнал</a></li>
                     {% endif %}

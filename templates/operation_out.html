@@ -54,9 +54,11 @@
                         </option>
                         {% endfor %}
                     </select>
+                    {% if current_user.can_use_scanner() %}
                     <button type="button" class="btn btn-outline-primary" id="scanBtn" title="Сканировать">
                         <i class="bi bi-camera"></i>
                     </button>
+                    {% endif %}
                 </div>
             </div>
             <div class="col-md-2">
@@ -68,12 +70,14 @@
                 </button>
             </div>
         </div>
+        {% if current_user.can_use_scanner() %}
         <div id="scannerContainer" style="display:none; margin-top: 10px; border: 2px dashed #ccc; border-radius: 8px; padding: 10px; text-align: center;">
             <div id="miniScanner" style="width: 100%; max-width: 300px; margin: 0 auto;"></div>
             <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="stopScannerBtn">
                 <i class="bi bi-stop-circle"></i> Остановить
             </button>
         </div>
+        {% endif %}
     </div>
 </div>
 
@@ -135,6 +139,7 @@ document.getElementById('addToCartBtn').addEventListener('click', function() {
     renderCart();
 });
 
+{% if current_user.can_use_scanner() %}
 let scanner = null;
 document.getElementById('scanBtn').addEventListener('click', function() {
     document.getElementById('scannerContainer').style.display = 'block';
@@ -151,9 +156,13 @@ document.getElementById('scanBtn').addEventListener('click', function() {
                         document.getElementById('material_select').value = data.material.id;
                         document.getElementById('item_quantity').focus();
                     } else {
+    {% if current_user.is_admin() %}
     if (confirm('QR-код не найден в базе!\n\nЗарегистрировать новый материал с этим QR-кодом?')) {
         window.location.href = '/materials/add?barcode=' + encodeURIComponent(decodedText);
     }
+    {% else %}
+    alert('QR-код не найден. Для регистрации материала обратитесь к администратору.');
+    {% endif %}
 }
                 });
         },
@@ -172,6 +181,7 @@ function stopScanner() {
     document.getElementById('scannerContainer').style.display = 'none';
     document.getElementById('scanBtn').disabled = false;
 }
+{% endif %}
 
 function renderCart() {
     const tbody = document.getElementById('cartBody');
@@ -201,7 +211,12 @@ document.getElementById('submitOutBtn').addEventListener('click', function() {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/operations/out';
+
+    const csrfToken =
+        document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
     form.innerHTML = `
+        <input type="hidden" name="csrf_token" value="${csrfToken}">
         <input type="hidden" name="operation_id" value="${operation_id}">
         <input type="hidden" name="doctor_name" value="${doctor_name}">
         <input type="hidden" name="note" value="${document.getElementById('note').value}">

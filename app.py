@@ -2,14 +2,27 @@ import os
 import json
 from flask import Flask, render_template, redirect, url_for, flash, request, send_file
 from config import Config
-from models import db, User, Material, Batch, Location, Transaction, Category, Transfer, TransferItem, TransferRequest, SpendingDraft, Revision
+from models import db, User, Material, Batch, Location, Transaction, Category, Transfer, TransferItem, TransferRequest, TransferRequestItem, SpendingDraft, Revision, OPERATING_ROOM_LOCATION_CODE
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import date, datetime
 from io import BytesIO
+from urllib.parse import urlsplit
+from flask_wtf.csrf import CSRFProtect
+from schema_migrations import migrate_request_item_schema
 
 login_manager = LoginManager()
 login_manager.login_view = 'login'
 login_manager.login_message = 'Пожалуйста, войдите для доступа.'
+
+csrf = CSRFProtect()
+
+
+def is_safe_redirect_target(target):
+    """Allow redirects only to local paths."""
+    if not target:
+        return False
+    parsed = urlsplit(target)
+    return not parsed.scheme and not parsed.netloc and target.startswith('/') and not target.startswith('//')
 
 
 def create_app():
@@ -18,20 +31,23 @@ def create_app():
 
     db.init_app(app)
     login_manager.init_app(app)
+    csrf.init_app(app)
 
     with app.app_context():
+        migrate_request_item_schema(db.engine)
         db.create_all()
-        # Миграция: добавляем колонку can_revision_extra, если её ещё нет
-        try:
-            from sqlalchemy import text
-            db.session.execute(text("ALTER TABLE users ADD COLUMN can_revision_extra BOOLEAN DEFAULT 0"))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()  # колонка уже существует — это нормально
 
     @login_manager.user_loader
     def load_user(user_id):
-        return User.query.get(int(user_id))
+        return db.session.get(User, int(user_id))
+
+
+    @app.context_processor
+    def inject_pending_transfer_requests():
+        pending_count = 0
+        if current_user.is_authenticated and current_user.can_process_requests():
+            pending_count = TransferRequest.query.filter_by(status='pending').count()
+        return {'pending_transfer_requests_count': pending_count}
 
     # ──────────────────────────────────────────
     # АВТОРИЗАЦИЯ
@@ -48,8 +64,10 @@ def create_app():
                 if user.is_active:
                     login_user(user)
                     flash(f'Добро пожаловать, {user.full_name or user.username}!', 'success')
-                    next_page = request.args.get('next')
-                    return redirect(next_page or url_for('index'))
+                    next_page = request.args.get('next', '')
+                    if is_safe_redirect_target(next_page):
+                        return redirect(next_page)
+                    return redirect(url_for('index'))
                 else:
                     flash('Ваша учётная запись отключена.', 'danger')
             else:
@@ -69,6 +87,8 @@ def create_app():
     @app.route('/')
     @login_required
     def index():
+        if not current_user.can_view_dashboard():
+            return redirect(url_for('locations'))
         today = date.today()
         category_id = request.args.get('category_id', '').strip()
 
@@ -132,6 +152,8 @@ def create_app():
     @app.route('/dashboard/expired')
     @login_required
     def dashboard_expired():
+        if not current_user.can_view_dashboard():
+            return redirect(url_for('locations'))
         today = date.today()
         batches = Batch.query.filter(
             Batch.is_active == True, Batch.quantity - Batch.used > 0,
@@ -143,6 +165,8 @@ def create_app():
     @app.route('/dashboard/expiring')
     @login_required
     def dashboard_expiring():
+        if not current_user.can_view_dashboard():
+            return redirect(url_for('locations'))
         today = date.today()
         batches = Batch.query.filter(
             Batch.is_active == True, Batch.quantity - Batch.used > 0,
@@ -181,6 +205,8 @@ def create_app():
     @app.route('/materials')
     @login_required
     def materials():
+        if not current_user.can_view_catalog():
+            return redirect(url_for('locations'))
         search = request.args.get('search', '').strip()
         category_id = request.args.get('category_id', '').strip()
         reusable = request.args.get('reusable', '').strip()
@@ -205,8 +231,8 @@ def create_app():
     @app.route('/materials/add', methods=['GET', 'POST'])
     @login_required
     def material_add():
-        if not current_user.is_storekeeper():
-            flash('Недостаточно прав.', 'danger')
+        if not current_user.is_admin():
+            flash('Изменять справочник может только администратор.', 'danger')
             return redirect(url_for('materials'))
         categories_list = Category.query.order_by(Category.name).all()
         if request.method == 'POST':
@@ -248,8 +274,8 @@ def create_app():
     @app.route('/materials/<int:id>/edit', methods=['GET', 'POST'])
     @login_required
     def material_edit(id):
-        if not current_user.is_storekeeper():
-            flash('Недостаточно прав.', 'danger')
+        if not current_user.is_admin():
+            flash('Изменять справочник может только администратор.', 'danger')
             return redirect(url_for('materials'))
         material = Material.query.get_or_404(id)
         categories_list = Category.query.order_by(Category.name).all()
@@ -301,14 +327,16 @@ def create_app():
     @app.route('/categories')
     @login_required
     def categories():
+        if not current_user.can_view_catalog():
+            return redirect(url_for('locations'))
         cats = Category.query.order_by(Category.name).all()
         return render_template('categories.html', categories=cats)
 
     @app.route('/categories/add', methods=['GET', 'POST'])
     @login_required
     def category_add():
-        if not current_user.is_storekeeper():
-            flash('Недостаточно прав.', 'danger')
+        if not current_user.is_admin():
+            flash('Изменять справочник может только администратор.', 'danger')
             return redirect(url_for('categories'))
         if request.method == 'POST':
             name = request.form.get('name', '').strip()
@@ -329,8 +357,8 @@ def create_app():
     @app.route('/categories/<int:id>/edit', methods=['GET', 'POST'])
     @login_required
     def category_edit(id):
-        if not current_user.is_storekeeper():
-            flash('Недостаточно прав.', 'danger')
+        if not current_user.is_admin():
+            flash('Изменять справочник может только администратор.', 'danger')
             return redirect(url_for('categories'))
         cat = Category.query.get_or_404(id)
         if request.method == 'POST':
@@ -365,14 +393,17 @@ def create_app():
     @app.route('/locations')
     @login_required
     def locations():
-        locs = Location.query.order_by(Location.code).all()
+        locations_query = Location.query
+        if current_user.role == 'xray_lab':
+            locations_query = locations_query.filter_by(code=OPERATING_ROOM_LOCATION_CODE)
+        locs = locations_query.order_by(Location.code).all()
         return render_template('locations.html', locations=locs)
 
     @app.route('/locations/add', methods=['GET', 'POST'])
     @login_required
     def location_add():
-        if not current_user.is_storekeeper():
-            flash('Недостаточно прав.', 'danger')
+        if not current_user.is_admin():
+            flash('Изменять справочник может только администратор.', 'danger')
             return redirect(url_for('locations'))
         if request.method == 'POST':
             code = request.form.get('code', '').strip()
@@ -393,8 +424,8 @@ def create_app():
     @app.route('/locations/<int:id>/edit', methods=['GET', 'POST'])
     @login_required
     def location_edit(id):
-        if not current_user.is_storekeeper():
-            flash('Недостаточно прав.', 'danger')
+        if not current_user.is_admin():
+            flash('Изменять справочник может только администратор.', 'danger')
             return redirect(url_for('locations'))
         loc = Location.query.get_or_404(id)
         if request.method == 'POST':
@@ -426,10 +457,10 @@ def create_app():
     @app.route('/locations/<int:id>/view')
     @login_required
     def location_view(id):
-        if not current_user.can_view_location_contents():
+        loc = Location.query.get_or_404(id)
+        if not current_user.can_view_location_contents(loc.code):
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('locations'))
-        loc = Location.query.get_or_404(id)
         batches = Batch.query.filter(
             Batch.location_id == loc.id,
             Batch.is_active == True,
@@ -443,11 +474,16 @@ def create_app():
     @app.route('/scanner')
     @login_required
     def scanner():
+        if not current_user.can_use_scanner():
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('locations'))
         return render_template('scanner.html')
 
     @app.route('/api/material-by-barcode')
     @login_required
     def api_material_by_barcode():
+        if not current_user.can_use_scanner():
+            return {'found': False}, 403
         import re
 
         barcode = request.args.get('barcode', '').strip()
@@ -491,7 +527,21 @@ def create_app():
     @app.route('/api/categories')
     @login_required
     def api_categories():
-        cats = Category.query.order_by(Category.name).all()
+        categories_query = Category.query
+        if current_user.role == 'xray_lab':
+            oper_location = Location.query.filter_by(code=OPERATING_ROOM_LOCATION_CODE).first()
+            if not oper_location:
+                return []
+            category_ids = db.session.query(Material.category_id).join(
+                Batch, Batch.material_id == Material.id
+            ).filter(
+                Batch.location_id == oper_location.id,
+                Batch.is_active == True,
+                Batch.quantity - Batch.used > 0,
+                Material.category_id.isnot(None)
+            ).distinct()
+            categories_query = categories_query.filter(Category.id.in_(category_ids))
+        cats = categories_query.order_by(Category.name).all()
         return [{'id': c.id, 'name': c.name} for c in cats]
 
     # ──────────────────────────────────────────
@@ -594,6 +644,30 @@ def create_app():
             cart_data = request.form.get('cart_data', '[]')
             cart = json.loads(cart_data)
 
+            if current_user.role == 'xray_lab':
+                oper_location = Location.query.filter_by(code=OPERATING_ROOM_LOCATION_CODE).first()
+                if not oper_location:
+                    flash('Локация операционной не найдена.', 'danger')
+                    return redirect(url_for('operation_out'))
+                for item in cart:
+                    try:
+                        material_id = int(item['id'])
+                        quantity = int(item['qty'])
+                    except (KeyError, TypeError, ValueError):
+                        flash('В корзине есть некорректная позиция.', 'danger')
+                        return redirect(url_for('operation_out'))
+                    available = db.session.query(
+                        db.func.coalesce(db.func.sum(Batch.quantity - Batch.used), 0)
+                    ).filter(
+                        Batch.material_id == material_id,
+                        Batch.location_id == oper_location.id,
+                        Batch.is_active == True,
+                        Batch.quantity - Batch.used > 0
+                    ).scalar() or 0
+                    if quantity <= 0 or quantity > available:
+                        flash('Можно оформить только доступный остаток операционной.', 'danger')
+                        return redirect(url_for('operation_out'))
+
             if not cart or not operation_id or not doctor_name:
                 flash('Заполните все обязательные поля.', 'danger')
                 return redirect(url_for('operation_out'))
@@ -608,8 +682,15 @@ def create_app():
                 for item in cart:
                     material = Material.query.get_or_404(int(item['id']))
                     qty = int(item['qty'])
+                    oper_location = Location.query.filter_by(code='03').first()
+                    if not oper_location:
+                        flash('Ошибка: локация операционной (03) не найдена.', 'danger')
+                        return redirect(url_for('operation_out'))
+
                     batches = Batch.query.filter(
-                        Batch.material_id == material.id, Batch.is_active == True,
+                        Batch.material_id == material.id,
+                        Batch.location_id == oper_location.id,
+                        Batch.is_active == True,
                         Batch.quantity - Batch.used > 0
                     ).order_by(Batch.expiry_date.asc()).all()
                     total_available = sum(b.remaining for b in batches)
@@ -642,6 +723,8 @@ def create_app():
                 db.session.commit()
                 flash(f'Черновик по операции {operation_id}: {len(cart)} позиций. Ожидает врача.', 'info')
 
+            if current_user.role == 'xray_lab':
+                return redirect(url_for('my_drafts'))
             return redirect(url_for('index'))
 
         prefilled_operation = request.args.get('operation_id', '').strip()
@@ -665,8 +748,22 @@ def create_app():
                 prefilled_doctor = rejected[0].doctor_name or ''
                 prefilled_note = rejected[0].note or ''
 
-        materials_list = Material.query.order_by(Material.name).all()
-        categories_list = Category.query.order_by(Category.name).all()
+        if current_user.role == 'xray_lab':
+            oper_location = Location.query.filter_by(code=OPERATING_ROOM_LOCATION_CODE).first()
+            if oper_location:
+                material_ids = [row[0] for row in db.session.query(Batch.material_id).filter(
+                    Batch.location_id == oper_location.id,
+                    Batch.is_active == True,
+                    Batch.quantity - Batch.used > 0
+                ).distinct().all()]
+            else:
+                material_ids = []
+            materials_list = Material.query.filter(Material.id.in_(material_ids)).order_by(Material.name).all() if material_ids else []
+            category_ids = {material.category_id for material in materials_list if material.category_id}
+            categories_list = Category.query.filter(Category.id.in_(category_ids)).order_by(Category.name).all() if category_ids else []
+        else:
+            materials_list = Material.query.order_by(Material.name).all()
+            categories_list = Category.query.order_by(Category.name).all()
         return render_template('operation_out.html',
                                materials=materials_list, categories=categories_list,
                                prefilled_operation=prefilled_operation,
@@ -717,41 +814,70 @@ def create_app():
             flash('Черновики не найдены.', 'warning')
             return redirect(url_for('spending_confirm_list'))
 
+        # Списание по операции выполняется ТОЛЬКО из операционной.
+        oper_location = Location.query.filter_by(code='03').first()
+        if not oper_location:
+            flash('Ошибка: локация операционной (03) не найдена в базе данных.', 'danger')
+            return redirect(url_for('spending_confirm_list'))
+
+        # Сначала проверяем всю операцию целиком. Если хотя бы одного
+        # материала не хватает в oper, ничего не списываем.
         for draft in drafts:
             material = draft.material
             batches = Batch.query.filter(
-                Batch.material_id == material.id, Batch.is_active == True,
+                Batch.material_id == material.id,
+                Batch.location_id == oper_location.id,
+                Batch.is_active == True,
                 Batch.quantity - Batch.used > 0
-            ).all()
+            ).order_by(Batch.expiry_date.asc()).all()
+
             total_available = sum(b.remaining for b in batches)
             if draft.quantity > total_available:
-                flash(f'Недостаточно "{material.name}"! Доступно: {total_available} шт.', 'danger')
+                flash(
+                    f'В операционной недостаточно "{material.name}"! '
+                    f'Требуется: {draft.quantity} шт., доступно: {total_available} шт.',
+                    'danger'
+                )
                 return redirect(url_for('spending_confirm_list'))
 
         count = len(drafts)
+
         for draft in drafts:
             material = draft.material
             batches = Batch.query.filter(
-                Batch.material_id == material.id, Batch.is_active == True,
+                Batch.material_id == material.id,
+                Batch.location_id == oper_location.id,
+                Batch.is_active == True,
                 Batch.quantity - Batch.used > 0
             ).order_by(Batch.expiry_date.asc()).all()
+
             remaining_to_take = draft.quantity
             for batch in batches:
                 if remaining_to_take <= 0:
                     break
+
                 take = min(batch.remaining, remaining_to_take)
                 batch.used += take
                 remaining_to_take -= take
+
+                t_type = 'reusable_out' if material.is_reusable else 'out'
                 db.session.add(Transaction(
-                    user_id=current_user.id, batch_id=batch.id, type='out',
-                    quantity=take, operation_id=draft.operation_id,
+                    user_id=current_user.id,
+                    batch_id=batch.id,
+                    type=t_type,
+                    quantity=take,
+                    operation_id=draft.operation_id,
                     doctor_name=draft.doctor_name,
                     note=f'Подтверждено врачом: {draft.note or ""}'
                 ))
+
             db.session.delete(draft)
 
         db.session.commit()
-        flash(f'Операция {operation_id}: списано {count} позиций!', 'success')
+        flash(
+            f'Операция {operation_id}: списано {count} позиций из операционной.',
+            'success'
+        )
         return redirect(url_for('spending_confirm_list'))
 
     @app.route('/spending/operation/<operation_id>/reject', methods=['POST'])
@@ -815,6 +941,9 @@ def create_app():
     @app.route('/requests')
     @login_required
     def requests_list():
+        if not (current_user.can_create_request() or current_user.can_process_requests()):
+            flash('Недостаточно прав.', 'danger')
+            return redirect(url_for('index'))
         if current_user.can_process_requests():
             reqs = TransferRequest.query.filter_by(status='pending').order_by(TransferRequest.created_at.desc()).all()
         else:
@@ -829,44 +958,297 @@ def create_app():
         if not current_user.can_create_request():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
-        if request.method == 'POST':
-            mat_id = request.form.get('material_id')
-            qty = int(request.form.get('quantity', 0))
-            note = request.form.get('note', '').strip()
-            if not mat_id or qty <= 0:
-                flash('Укажите материал и количество.', 'danger')
-                return redirect(url_for('request_add'))
-            req = TransferRequest(
-                from_user_id=current_user.id, material_id=int(mat_id),
-                quantity=qty, note=note, to_location_code='oper'
-            )
-            db.session.add(req)
-            db.session.commit()
-            flash('Заявка создана!', 'success')
-            return redirect(url_for('requests_list'))
-        materials_list = Material.query.order_by(Material.name).all()
-        return render_template('request_form.html', materials=materials_list)
 
-    @app.route('/requests/<int:id>/complete', methods=['POST'])
+        target_code = SPENDING_LOCATION_CODE if 'SPENDING_LOCATION_CODE' in globals() else '03'
+        target = Location.query.filter_by(code=target_code).first()
+        if not target:
+            flash(f'Локация назначения ({target_code}) не найдена.', 'danger')
+            return redirect(url_for('index'))
+
+        if request.method == 'POST':
+            mids=request.form.getlist('material_id[]')
+            qs=request.form.getlist('quantity[]')
+            if not mids:
+                old=request.form.get('material_id','').strip(); oq=request.form.get('quantity','').strip()
+                if old: mids=[old]; qs=[oq]
+            note=request.form.get('note','').strip()
+            if not mids or len(mids)!=len(qs):
+                flash('Добавьте хотя бы одну корректную позицию.','danger')
+                return redirect(url_for('request_add'))
+            items=[]; seen=set()
+            for n,(raw_id,raw_q) in enumerate(zip(mids,qs),1):
+                try: mid=int(raw_id); q=int(raw_q)
+                except (TypeError,ValueError):
+                    flash(f'Позиция №{n}: некорректные данные.','danger'); return redirect(url_for('request_add'))
+                if q<=0:
+                    flash(f'Позиция №{n}: количество должно быть больше 0.','danger'); return redirect(url_for('request_add'))
+                if mid in seen:
+                    flash('Один и тот же материал нельзя добавлять дважды.','danger'); return redirect(url_for('request_add'))
+                seen.add(mid); m=db.session.get(Material,mid)
+                if not m:
+                    flash(f'Позиция №{n}: материал не найден.','danger'); return redirect(url_for('request_add'))
+                # Наличие запрошенного материала здесь не ограничивает
+                # создание заявки. Если его нет, врач-кладовщик сможет
+                # выбрать другой фактический материал при обработке.
+                items.append((m,q))
+            first_m,first_q=items[0]
+            req=TransferRequest(from_user_id=current_user.id,material_id=first_m.id,quantity=first_q,note=note or None,to_location_code=target_code)
+            db.session.add(req); db.session.flush()
+            for m,q in items:
+                db.session.add(TransferRequestItem(request_id=req.id,material_id=m.id,requested_quantity=q))
+            db.session.commit()
+            flash(f'Заявка №{req.id} создана. Позиций: {len(items)}.','success')
+            return redirect(url_for('requests_list'))
+
+        categories=Category.query.order_by(Category.name).all()
+        mats=Material.query.order_by(Material.name).all()
+        availability={}
+        for m in mats:
+            total=sum(
+                b.remaining
+                for b in m.batches
+                if b.is_active and b.remaining>0 and b.location_id!=target.id
+            )
+            availability[m.id]=total
+
+        # В форме заявки показываем весь каталог материалов.
+        # Наличие отображается отдельно и не запрещает создать заявку,
+        # даже если остаток равен 0.
+        available=mats
+
+        return render_template(
+            'request_form.html',
+            categories=categories,
+            materials=available,
+            availability=availability,
+            request_target_code=target_code
+        )
+
+    @app.route('/requests/<int:id>/complete', methods=['GET', 'POST'])
     @login_required
     def request_complete(id):
         if not current_user.can_process_requests():
-            flash('Недостаточно прав.', 'danger')
+            flash('Недостаточно прав.','danger')
             return redirect(url_for('requests_list'))
-        req = TransferRequest.query.get_or_404(id)
-        if req.status != 'pending':
-            flash('Заявка уже обработана.', 'warning')
-            return redirect(url_for('requests_list'))
-        req.status = 'completed'
-        req.to_user_id = current_user.id
-        req.processed_at = datetime.utcnow()
-        db.session.commit()
-        flash(f'Заявка #{req.id} подтверждена!', 'success')
-        return redirect(url_for('requests_list'))
+        req=db.session.get(TransferRequest,id)
+        if not req:
+            flash('Заявка не найдена.','danger'); return redirect(url_for('requests_list'))
+        if req.status!='pending':
+            flash('Заявка уже обработана.','warning'); return redirect(url_for('requests_list'))
 
-    # ──────────────────────────────────────────
-    # ПЕРЕМЕЩЕНИЯ
-    # ──────────────────────────────────────────
+        if request.method=='GET':
+            locations=Location.query.order_by(Location.code).all()
+            target_code=req.to_location_code or '03'
+            if target_code=='oper': target_code='03'
+            target=Location.query.filter_by(code=target_code).first()
+            sources=[x for x in locations if not target or x.id!=target.id]
+
+            # Материалы, которые реально доступны для выдачи
+            # на складах/ячейках, кроме конечной локации заявки.
+            available_materials=[]
+            for m in Material.query.order_by(Material.name, Material.size).all():
+                available=sum(
+                    b.remaining
+                    for b in m.batches
+                    if b.is_active
+                    and b.remaining > 0
+                    and (not target or b.location_id != target.id)
+                )
+                if available > 0:
+                    available_materials.append({
+                        'id': m.id,
+                        'name': m.name,
+                        'size': m.size or '',
+                        'category_id': m.category_id,
+                        'available': available
+                    })
+
+            return render_template(
+                'request_process.html',
+                request_obj=req,
+                items=req.items,
+                sources=sources,
+                target_code=target_code,
+                available_materials=available_materials
+            )
+
+        item_ids=request.form.getlist('request_item_id[]')
+        batch_ids=request.form.getlist('batch_id[]')
+        quantities=request.form.getlist('qty[]')
+        issued_material_ids=request.form.getlist('issued_material_id[]')
+
+        if not item_ids or not (len(item_ids)==len(batch_ids)==len(quantities)):
+            flash('Проверьте позиции, партии и количества.','danger')
+            return redirect(url_for('request_complete',id=req.id))
+
+        items={x.id:x for x in req.items}
+        item_totals={}
+        batch_totals={}
+        batch_items={}
+        item_materials={}
+
+        # Фактический материал передаётся один раз на каждую
+        # позицию заявки, а строки партий могут быть несколькими.
+        issued_by_item={}
+
+        if issued_material_ids:
+            if len(issued_material_ids) != len(items):
+                flash('Для каждой позиции заявки должен быть указан фактический материал.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+
+            for item_obj, raw_mid in zip(req.items, issued_material_ids):
+                try:
+                    issued_by_item[item_obj.id]=int(raw_mid)
+                except (TypeError,ValueError):
+                    flash('Некорректно указан фактический материал.','danger')
+                    return redirect(url_for('request_complete',id=req.id))
+
+        for n,(ri,bi,qr) in enumerate(zip(item_ids,batch_ids,quantities),1):
+            try:
+                iid=int(ri)
+                bid=int(bi)
+                q=int(qr)
+            except (TypeError,ValueError):
+                flash(f'Строка №{n}: некорректные данные.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+
+            if iid not in items or q<=0:
+                flash(f'Строка №{n}: проверьте позицию и количество.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+
+            item=items[iid]
+
+            # Один фактический материал задаётся для всей позиции заявки.
+            # При этом одну позицию можно распределить по нескольким партиям.
+            issued_mid=issued_by_item.get(iid, item.material_id)
+
+            issued_material= db.session.get(Material, issued_mid)
+            if not issued_material:
+                flash(f'Строка №{n}: фактический материал не найден.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+
+            # Одна позиция заявки может быть разбита по нескольким партиям,
+            # но фактический материал у неё должен оставаться одним и тем же.
+            prev_mid=item_materials.get(iid)
+            if prev_mid is not None and prev_mid != issued_mid:
+                flash(f'Строка №{n}: для одной позиции заявки указан разный фактический материал.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+            item_materials[iid]=issued_mid
+
+            b=db.session.get(Batch,bid)
+            if not b or not b.is_active:
+                flash(f'Строка №{n}: партия недоступна.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+
+            target_code_check=(req.to_location_code or '03').replace('oper','03')
+            target_check=Location.query.filter_by(code=target_code_check).first()
+            if b.location_id == (target_check.id if target_check else -1):
+                flash(f'Партия #{b.id} уже находится в назначении.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+
+            # Критически важно: партия должна относиться к выбранному
+            # фактическому материалу, а не обязательно к первоначально
+            # запрошенному материалу.
+            if b.material_id != issued_mid:
+                flash(f'Строка №{n}: партия не относится к выбранному фактическому материалу.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+
+            if bid in batch_items and batch_items[bid]!=iid:
+                flash(f'Партия #{bid} назначена двум позициям.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+
+            batch_items[bid]=iid
+            batch_totals[bid]=batch_totals.get(bid,0)+q
+            item_totals[iid]=item_totals.get(iid,0)+q
+
+        batches={}
+        for bid,total in batch_totals.items():
+            b=db.session.get(Batch,bid)
+            if b.remaining<total:
+                flash(f'Партия #{b.id}: доступно {b.remaining} шт., передать пытаются {total} шт.','danger')
+                return redirect(url_for('request_complete',id=req.id))
+            batches[bid]=b
+
+        target_code=req.to_location_code or '03'
+        if target_code=='oper': target_code='03'
+        target=Location.query.filter_by(code=target_code).first()
+        if not target:
+            flash('Локация назначения не найдена.','danger'); return redirect(url_for('requests_list'))
+
+        groups={}
+        for bid,total in batch_totals.items():
+            b=batches[bid]; groups.setdefault(b.location_id,[]).append((b,total))
+        note=request.form.get('note','').strip(); transfer_count=0
+        for source_id,rows in groups.items():
+            source=db.session.get(Location,source_id)
+            tr=Transfer(from_location_id=source.id,to_location_id=target.id,user_id=current_user.id,request_id=req.id,note=note or f'По заявке №{req.id}')
+            db.session.add(tr); db.session.flush(); transfer_count+=1
+            for b,q in rows:
+                iid=batch_items[b.id]
+                issued_mid=item_materials[iid]
+
+                b.used+=q
+
+                tb=Batch.query.filter(
+                    Batch.material_id==issued_mid,
+                    Batch.location_id==target.id,
+                    Batch.batch_number==b.batch_number,
+                    Batch.expiry_date==b.expiry_date,
+                    Batch.is_active==True
+                ).order_by(Batch.id.asc()).first()
+
+                if tb:
+                    tb.quantity+=q
+                else:
+                    tb=Batch(
+                        material_id=issued_mid,
+                        location_id=target.id,
+                        batch_number=b.batch_number,
+                        expiry_date=b.expiry_date,
+                        quantity=q,
+                        used=0,
+                        is_active=True
+                    )
+                    db.session.add(tb)
+                    db.session.flush()
+
+                db.session.add(
+                    TransferItem(
+                        transfer_id=tr.id,
+                        batch_id=tb.id,
+                        quantity=q,
+                        request_item_id=iid
+                    )
+                )
+                db.session.add(
+                    Transaction(
+                        user_id=current_user.id,
+                        batch_id=b.id,
+                        type='move_out',
+                        quantity=q,
+                        note=f'По заявке №{req.id}: в {target.code}',
+                        request_item_id=iid
+                    )
+                )
+                db.session.add(
+                    Transaction(
+                        user_id=current_user.id,
+                        batch_id=tb.id,
+                        type='move_in',
+                        quantity=q,
+                        note=f'По заявке №{req.id}: из {source.code}',
+                        request_item_id=iid
+                    )
+                )
+
+        for iid,item in items.items():
+            item.transferred_quantity=item_totals.get(iid,0)
+            item.transferred_material_id=item_materials.get(iid)
+
+        req.status='completed'; req.to_user_id=current_user.id; req.processed_at=datetime.utcnow(); db.session.commit()
+        flash(f'Заявка №{req.id} выполнена. Создано перемещений: {transfer_count}.','success')
+        return redirect(url_for('transfers_list'))
+
     @app.route('/transfers')
     @login_required
     def transfers_list():
@@ -883,67 +1265,287 @@ def create_app():
             flash('Недостаточно прав.', 'danger')
             return redirect(url_for('index'))
 
+        transfer_request = None
+
+        request_id = (
+            request.args.get('request_id', type=int)
+            if request.method == 'GET'
+            else request.form.get('request_id', type=int)
+        )
+
+        if request_id:
+            transfer_request = TransferRequest.query.filter_by(
+                id=request_id,
+                status='pending'
+            ).first()
+
+            if not transfer_request:
+                flash('Активная заявка не найдена.', 'warning')
+                return redirect(url_for('requests_list'))
+
         if request.method == 'POST':
-            from_location_code = request.form.get('from_location', '').strip()
-            to_location_code = request.form.get('to_location', '').strip()
+            from_location_code = request.form.get(
+                'from_location', ''
+            ).strip()
+
+            to_location_code = request.form.get(
+                'to_location', ''
+            ).strip()
+
             note = request.form.get('note', '').strip()
+
+            if transfer_request:
+                to_location_code = (
+                    transfer_request.to_location_code or '03'
+                )
+                if to_location_code == 'oper':
+                    to_location_code = '03'
+
+            def error_url():
+                if transfer_request:
+                    return url_for(
+                        'transfer_add',
+                        request_id=transfer_request.id
+                    )
+                return url_for('transfer_add')
+
             if not from_location_code or not to_location_code:
                 flash('Выберите обе локации.', 'danger')
-                return redirect(url_for('transfer_add'))
+                return redirect(error_url())
+
             if from_location_code == to_location_code:
                 flash('Локации должны быть разными.', 'danger')
-                return redirect(url_for('transfer_add'))
-            from_loc = Location.query.filter_by(code=from_location_code).first()
-            to_loc = Location.query.filter_by(code=to_location_code).first()
+                return redirect(error_url())
+
+            from_loc = Location.query.filter_by(
+                code=from_location_code
+            ).first()
+
+            to_loc = Location.query.filter_by(
+                code=to_location_code
+            ).first()
+
             if not from_loc or not to_loc:
                 flash('Локация не найдена.', 'danger')
-                return redirect(url_for('transfer_add'))
+                return redirect(error_url())
+
+            batch_ids = request.form.getlist('batch_id[]')
+            quantities = request.form.getlist('qty[]')
+
+            if not batch_ids:
+                indexed = {}
+
+                for key in request.form.keys():
+                    if key.startswith('batch_id_'):
+                        suffix = key[len('batch_id_'):]
+                        if suffix.isdigit():
+                            i = int(suffix)
+                            indexed.setdefault(i, {})['batch_id'] = request.form.get(key)
+
+                    elif key.startswith('qty_'):
+                        suffix = key[len('qty_'):]
+                        if suffix.isdigit():
+                            i = int(suffix)
+                            indexed.setdefault(i, {})['qty'] = request.form.get(key)
+
+                for i in sorted(indexed):
+                    row = indexed[i]
+                    if 'batch_id' in row and 'qty' in row:
+                        batch_ids.append(row['batch_id'])
+                        quantities.append(row['qty'])
+
+            if not batch_ids:
+                flash('Добавьте хотя бы одну партию для перемещения.', 'danger')
+                return redirect(error_url())
+
+            if len(batch_ids) != len(quantities):
+                flash(
+                    'Ошибка данных формы перемещения. Повторите операцию.',
+                    'danger'
+                )
+                return redirect(error_url())
+
+            transfer_rows = []
+            seen = set()
+
+            for raw_batch_id, raw_qty in zip(batch_ids, quantities):
+                try:
+                    batch_id = int((raw_batch_id or '').strip())
+                    qty = int((raw_qty or '').strip())
+                except (TypeError, ValueError):
+                    flash(
+                        'Некорректные данные партии или количества.',
+                        'danger'
+                    )
+                    return redirect(error_url())
+
+                if qty <= 0:
+                    flash('Количество должно быть больше нуля.', 'danger')
+                    return redirect(error_url())
+
+                if batch_id in seen:
+                    flash(
+                        'Одна и та же партия выбрана несколько раз.',
+                        'danger'
+                    )
+                    return redirect(error_url())
+                seen.add(batch_id)
+
+                batch = db.session.get(Batch, batch_id)
+
+                if not batch:
+                    flash(f'Партия #{batch_id} не найдена.', 'danger')
+                    return redirect(error_url())
+
+                if batch.location_id != from_loc.id:
+                    flash(
+                        f'Партия #{batch.id} не находится '
+                        f'в локации "{from_loc.code}".',
+                        'danger'
+                    )
+                    return redirect(error_url())
+
+                if not batch.is_active:
+                    flash(f'Партия #{batch.id} неактивна.', 'danger')
+                    return redirect(error_url())
+
+                if batch.remaining < qty:
+                    flash(
+                        f'Недостаточно материала в партии #{batch.id}. '
+                        f'Доступно: {batch.remaining}, '
+                        f'запрошено: {qty}.',
+                        'danger'
+                    )
+                    return redirect(error_url())
+
+                transfer_rows.append((batch, qty))
+
+            if transfer_request:
+                fulfilled = sum(
+                    qty for batch, qty in transfer_rows
+                    if batch.material_id == transfer_request.material_id
+                )
+
+                if fulfilled != transfer_request.quantity:
+                    flash(
+                        f'Заявка №{transfer_request.id} требует '
+                        f'{transfer_request.quantity} шт. материала '
+                        f'«{transfer_request.material.name}». '
+                        f'В текущем перемещении указано: {fulfilled} шт.',
+                        'danger'
+                    )
+                    return redirect(
+                        url_for(
+                            'transfer_add',
+                            request_id=transfer_request.id
+                        )
+                    )
+
             transfer = Transfer(
-                from_location_id=from_loc.id, to_location_id=to_loc.id,
-                user_id=current_user.id, note=note
+                from_location_id=from_loc.id,
+                to_location_id=to_loc.id,
+                user_id=current_user.id,
+                note=note
             )
             db.session.add(transfer)
             db.session.flush()
-            index = 0
-            while True:
-                batch_key = f'batch_id_{index}'
-                qty_key = f'qty_{index}'
-                if batch_key not in request.form:
-                    break
-                batch_id = request.form.get(batch_key)
-                qty = int(request.form.get(qty_key, 0))
-                if batch_id and qty > 0:
-                    batch = Batch.query.get(int(batch_id))
-                    if batch and batch.location_id == from_loc.id and batch.remaining >= qty:
-                        batch.used += qty
-                        new_batch = Batch(
-                            material_id=batch.material_id, location_id=to_loc.id,
-                            batch_number=batch.batch_number, expiry_date=batch.expiry_date,
-                            quantity=qty, used=0
-                        )
-                        db.session.add(new_batch)
-                        db.session.flush()
-                        item = TransferItem(transfer_id=transfer.id, batch_id=batch.id, quantity=qty)
-                        db.session.add(item)
-                        db.session.add(Transaction(
-                            user_id=current_user.id, batch_id=batch.id, type='move_out',
-                            quantity=qty, note=f'Перемещение в {to_loc.code}'
-                        ))
-                        db.session.add(Transaction(
-                            user_id=current_user.id, batch_id=new_batch.id, type='move_in',
-                            quantity=qty, note=f'Перемещение из {from_loc.code}'
-                        ))
-                index += 1
+
+            for batch, qty in transfer_rows:
+                batch.used += qty
+
+                target_batch = Batch.query.filter(
+                    Batch.material_id == batch.material_id,
+                    Batch.location_id == to_loc.id,
+                    Batch.batch_number == batch.batch_number,
+                    Batch.expiry_date == batch.expiry_date,
+                    Batch.is_active == True
+                ).order_by(Batch.id.asc()).first()
+
+                if target_batch:
+                    target_batch.quantity += qty
+                    target_batch_id = target_batch.id
+                else:
+                    target_batch = Batch(
+                        material_id=batch.material_id,
+                        location_id=to_loc.id,
+                        batch_number=batch.batch_number,
+                        expiry_date=batch.expiry_date,
+                        quantity=qty,
+                        used=0,
+                        is_active=True
+                    )
+                    db.session.add(target_batch)
+                    db.session.flush()
+                    target_batch_id = target_batch.id
+
+                db.session.add(
+                    TransferItem(
+                        transfer_id=transfer.id,
+                        batch_id=target_batch_id,
+                        quantity=qty
+                    )
+                )
+
+                db.session.add(
+                    Transaction(
+                        user_id=current_user.id,
+                        batch_id=batch.id,
+                        type='move_out',
+                        quantity=qty,
+                        note=f'Перемещение в {to_loc.code}'
+                    )
+                )
+
+                db.session.add(
+                    Transaction(
+                        user_id=current_user.id,
+                        batch_id=target_batch_id,
+                        type='move_in',
+                        quantity=qty,
+                        note=f'Перемещение из {from_loc.code}'
+                    )
+                )
+
+            if transfer_request:
+                transfer_request.status = 'completed'
+                transfer_request.to_user_id = current_user.id
+                transfer_request.processed_at = datetime.utcnow()
+
             db.session.commit()
-            flash('Перемещение выполнено!', 'success')
+
+            if transfer_request:
+                flash(
+                    f'Заявка №{transfer_request.id} выполнена. '
+                    f'Перемещение подтверждено!',
+                    'success'
+                )
+            else:
+                flash(
+                    f'Перемещение выполнено! '
+                    f'Позиций: {len(transfer_rows)}.',
+                    'success'
+                )
+
             return redirect(url_for('transfers_list'))
-        locations_list = Location.query.order_by(Location.code).all()
-        return render_template('transfer_form.html', locations=locations_list)
+
+        locations_list = Location.query.order_by(
+            Location.code
+        ).all()
+
+        return render_template(
+            'transfer_form.html',
+            locations=locations_list,
+            transfer_request=transfer_request
+        )
+
+
 
     @app.route('/api/batches-by-location')
     @login_required
     def api_batches_by_location():
         location_code = request.args.get('location', '').strip()
+        if current_user.role == 'xray_lab' and location_code != OPERATING_ROOM_LOCATION_CODE:
+            return []
         if not location_code:
             return []
         location = Location.query.filter_by(code=location_code).first()
@@ -954,7 +1556,10 @@ def create_app():
             Batch.quantity - Batch.used > 0
         ).order_by(Batch.expiry_date.asc()).all()
         return [{
-            'id': b.id, 'name': b.material.name, 'size': b.material.size or '',
+            'id': b.id,
+            'material_id': b.material_id,
+            'name': b.material.name,
+            'size': b.material.size or '',
             'remaining': b.remaining,
             'expiry': b.expiry_date.strftime('%d.%m.%Y') if b.expiry_date else '—',
         } for b in batches]
@@ -1014,27 +1619,6 @@ def create_app():
             return redirect(url_for('index'))
         transactions_list = Transaction.query.order_by(Transaction.created_at.desc()).limit(100).all()
         return render_template('transactions.html', transactions=transactions_list)
-
-    # ──────────────────────────────────────────
-    # СОЗДАНИЕ ТЕСТОВЫХ ПОЛЬЗОВАТЕЛЕЙ
-    # ──────────────────────────────────────────
-    @app.route('/init-users')
-    def init_users():
-        users_data = [
-            ('admin', 'admin123', 'Администратор', 'admin'),
-            ('zaved', 'zaved123', 'Заведующий отделением', 'head'),
-            ('sestra', 'sestra123', 'Старшая медсестра', 'head_nurse'),
-            ('vrach_sklad', 'vrach123', 'Врач-кладовщик', 'doctor_storekeeper'),
-            ('vrach', 'vrach123', 'Врач-оператор', 'doctor'),
-            ('xray', 'xray123', 'Рентгенлаборант', 'xray_lab'),
-        ]
-        for username, password, full_name, role in users_data:
-            if not User.query.filter_by(username=username).first():
-                user = User(username=username, full_name=full_name, role=role)
-                user.set_password(password)
-                db.session.add(user)
-        db.session.commit()
-        return 'Пользователи созданы! <a href="/">Войти</a>'
 
     # ──────────────────────────────────────────
     # ЭКСПОРТ В EXCEL
@@ -1149,7 +1733,7 @@ def create_app():
                         max_length = max(max_length, len(str(cell.value)))
                 ws.column_dimensions[col_letter].width = min(max_length + 2, 40)
 
-        if len(wb.sheetnames) > 1:
+        if len(wb.sheetnames) > 1 and "Пусто" in wb.sheetnames:
             wb.remove(wb["Пусто"])
 
         output = BytesIO()
@@ -1190,9 +1774,8 @@ def create_app():
             if User.query.filter_by(username=username).first():
                 flash(f'Логин "{username}" уже занят!', 'danger')
                 return render_template('admin_user_form.html', user=None)
-            can_revision_extra = request.form.get('can_revision_extra') == '1'
             user = User(username=username, full_name=full_name, role=role,
-                        can_revision_extra=can_revision_extra)
+                        can_revision_extra=False)
             user.set_password(password)
             db.session.add(user)
             db.session.commit()
@@ -1220,7 +1803,7 @@ def create_app():
             if password:
                 user.set_password(password)
             user.is_active = request.form.get('is_active') == '1'
-            user.can_revision_extra = request.form.get('can_revision_extra') == '1'
+            user.can_revision_extra = False
             db.session.commit()
             flash(f'Пользователь "{user.username}" обновлён!', 'success')
             return redirect(url_for('admin_users'))

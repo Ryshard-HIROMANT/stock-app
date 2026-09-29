@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h1><i class="bi bi-geo-alt"></i> Места хранения (локации)</h1>
-    {% if current_user.is_storekeeper() %}
+    {% if current_user.is_admin() %}
     <a href="/locations/add" class="btn btn-success">
         <i class="bi bi-plus-circle"></i> Добавить локацию
     </a>
@@ -28,12 +28,12 @@
                     <td><span class="badge bg-secondary fs-6">{{ loc.code }}</span></td>
                     <td>{{ loc.description or '—' }}</td>
                     <td>
-                        {% if current_user.can_view_location_contents() %}
+                        {% if current_user.can_view_location_contents(loc.code) %}
                         <a href="/locations/{{ loc.id }}/view" class="btn btn-sm btn-info" title="Показать содержимое">
                             <i class="bi bi-eye"></i> Содержимое
                         </a>
                         {% endif %}
-                        {% if current_user.is_storekeeper() %}
+                        {% if current_user.is_admin() %}
                         <a href="/locations/{{ loc.id }}/edit" class="btn btn-sm btn-warning" title="Редактировать">
                             <i class="bi bi-pencil"></i>
                         </a>
@@ -41,6 +41,7 @@
                         {% if current_user.is_admin() %}
                         <form method="POST" action="/locations/{{ loc.id }}/delete" style="display:inline;"
                               onsubmit="return confirm('Удалить локацию «{{ loc.code }}»?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-sm btn-danger" title="Удалить">
                                 <i class="bi bi-trash"></i>
                             </button>

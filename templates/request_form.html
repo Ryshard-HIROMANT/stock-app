@@ -1,33 +1,9 @@
-cat > templates/request_form.html << 'ENDOFFILE'
-{% extends "base.html" %}
-{% block title %}Создать заявку — Склад{% endblock %}
-{% block content %}
+{% extends "base.html" %}{% block title %}Заявка на перемещение — Склад{% endblock %}{% block content %}
 <h1><i class="bi bi-send"></i> Заявка на перемещение в операционную</h1>
-
-<div class="card">
-    <div class="card-body">
-        <form method="POST">
-            <div class="mb-3">
-                <label for="material_id" class="form-label">Материал *</label>
-                <select class="form-select" id="material_id" name="material_id" required>
-                    <option value="">— Выберите материал —</option>
-                    {% for m in materials %}
-                    <option value="{{ m.id }}">{{ m.name }} {{ m.size or '' }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="mb-3">
-                <label for="quantity" class="form-label">Количество *</label>
-                <input type="number" class="form-control" id="quantity" name="quantity" min="1" value="1" required>
-            </div>
-            <div class="mb-3">
-                <label for="note" class="form-label">Примечание</label>
-                <input type="text" class="form-control" id="note" name="note" placeholder="Срочно и т.д.">
-            </div>
-            <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> Отправить заявку</button>
-            <a href="/requests" class="btn btn-secondary">Отмена</a>
-        </form>
-    </div>
-</div>
-{% endblock %}
-ENDOFFILE
+<div class="alert alert-info">Добавьте несколько позиций. В одной заявке можно использовать разные категории материалов.</div>
+<form method="POST" id="requestForm"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div id="items"></div>
+<button type="button" id="addItem" class="btn btn-outline-primary mb-3">Добавить позицию</button>
+<div class="mb-3"><label class="form-label">Примечание</label><textarea class="form-control" name="note" rows="3"></textarea></div>
+<button class="btn btn-primary btn-lg" type="submit">Отправить заявку</button> <a href="/requests" class="btn btn-secondary btn-lg">Отмена</a></form>
+<template id="tpl"><div class="card mb-3 item"><div class="card-header d-flex justify-content-between"><strong class="num"></strong><button type="button" class="btn btn-sm btn-outline-danger remove">Удалить</button></div><div class="card-body"><div class="row g-3"><div class="col-md-4"><label class="form-label">Категория *</label><select class="form-select cat" required><option value="">— Выберите категорию —</option>{% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div><div class="col-md-5"><label class="form-label">Материал *</label><select class="form-select mat" name="material_id[]" required disabled><option value="">— Сначала выберите категорию —</option>{% for m in materials %}<option value="{{ m.id }}" data-cat="{{ m.category_id or '' }}" data-av="{{ availability.get(m.id,0) }}">{{ m.name }} {{ m.size or '' }}{% if current_user.role != 'xray_lab' %} — доступно {{ availability.get(m.id,0) }} шт.{% endif %}</option>{% endfor %}</select><div class="form-text help"></div></div><div class="col-md-3"><label class="form-label">Количество *</label><input class="form-control qty" type="number" name="quantity[]" min="1" value="1" required><div class="form-text qhelp"></div></div></div></div></div></template>
+<script>(()=>{const box=document.getElementById('items'),tpl=document.getElementById('tpl'),form=document.getElementById('requestForm'),hideAvailability={{ (current_user.role == 'xray_lab')|tojson }};function rn(){[...box.querySelectorAll('.item')].forEach((x,i)=>x.querySelector('.num').textContent=`Позиция №${i+1}`)}function cat(x){const c=x.querySelector('.cat').value,m=x.querySelector('.mat'),q=x.querySelector('.qty');m.value='';q.value='1';q.removeAttribute('max');if(!c){m.disabled=true;return}m.disabled=false;[...m.options].forEach((o,i)=>{if(!i){o.hidden=false;o.disabled=false;return}const ok=o.dataset.cat===c;o.hidden=!ok;o.disabled=!ok})}function mat(x){const m=x.querySelector('.mat'),q=x.querySelector('.qty'),h=x.querySelector('.help'),o=m.options[m.selectedIndex],a=Number(o?.dataset?.av||0);if(!m.value){q.removeAttribute('max');q.value='1';h.textContent='';return}if(hideAvailability){q.removeAttribute('max');if(Number(q.value)<1)q.value='1';h.textContent='Укажите необходимое количество.';return}if(a>0){q.max=String(a);if(Number(q.value)<1)q.value='1';if(Number(q.value)>a)q.value=String(a)}else{q.removeAttribute('max');if(Number(q.value)<1)q.value='1'}h.textContent=`Доступно: ${a} шт.`}function add(){const f=tpl.content.cloneNode(true),x=f.querySelector('.item');box.appendChild(x);x.querySelector('.cat').onchange=()=>cat(x);x.querySelector('.mat').onchange=()=>mat(x);x.querySelector('.qty').oninput=()=>mat(x);x.querySelector('.remove').onclick=()=>{if(box.children.length<=1){alert('В заявке должна остаться хотя бы одна позиция.');return}x.remove();rn()};rn()}document.getElementById('addItem').onclick=add;add();form.onsubmit=e=>{const ids=new Set();for(const x of box.querySelectorAll('.item')){const m=x.querySelector('.mat'),q=x.querySelector('.qty'),v=Number(q.value),max=Number(q.max||0);if(!m.value||ids.has(m.value)||!Number.isInteger(v)||v<1||(max&&v>max)){e.preventDefault();alert('Проверьте материалы и количества.');return}ids.add(m.value)}}})();</script>{% endblock %}

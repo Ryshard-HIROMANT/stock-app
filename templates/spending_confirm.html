@@ -18,12 +18,14 @@
         <div>
             <form method="POST" action="/spending/operation/{{ group.operation_id }}/approve"
                   style="display:inline;" onsubmit="return confirm('Подтвердить списание всей операции {{ group.operation_id }}?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-light btn-sm">
                     <i class="bi bi-check-circle"></i> Подтвердить всё
                 </button>
             </form>
             <form method="POST" action="/spending/operation/{{ group.operation_id }}/reject"
                   style="display:inline;" onsubmit="return confirm('Отправить операцию {{ group.operation_id }} на доработку?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-outline-light btn-sm">
                     <i class="bi bi-arrow-counterclockwise"></i> На доработку
                 </button>

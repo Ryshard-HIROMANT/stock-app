@@ -6,6 +6,7 @@
 <div class="card">
     <div class="card-body">
         <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
                 <label for="username" class="form-label">Логин *</label>
                 <input type="text" class="form-control" id="username" name="username" value="{{ user.username if user else '' }}" required>
@@ -31,14 +32,6 @@
                     <option value="doctor" {% if user and user.role=='doctor' %}selected{% endif %}>Врач</option>
                     <option value="xray_lab" {% if user and user.role=='xray_lab' %}selected{% endif %}>Рентгенлаборант</option>
                 </select>
-            </div>
-            <div class="mb-3 form-check">
-                <input type="checkbox" class="form-check-input" id="can_revision_extra" name="can_revision_extra" value="1"
-                       {% if user and user.can_revision_extra %}checked{% endif %}>
-                <label for="can_revision_extra" class="form-check-label">
-                    <i class="bi bi-clipboard-check"></i> Разрешить ревизию
-                    <small class="text-muted">(дополнительно к врачу-кладовщику и админу)</small>
-                </label>
             </div>
             {% if user %}
             <div class="mb-3 form-check">

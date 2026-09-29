@@ -3,44 +3,137 @@
 {% block title %}Журнал операций — Склад{% endblock %}
 
 {% block content %}
-<h1 class="mb-4"><i class="bi bi-journal-text"></i> Журнал операций</h1>
+<h1 class="mb-4">
+    <i class="bi bi-journal-text"></i> Журнал операций
+</h1>
 
 <div class="card">
     <div class="card-body table-responsive">
         <table class="table table-striped table-hover align-middle">
+
             <thead class="table-dark">
                 <tr>
                     <th>Дата</th>
                     <th>Тип</th>
                     <th>Материал</th>
                     <th>Кол-во</th>
+                    <th>Заявка</th>
                     <th>Сотрудник</th>
                     <th>Примечание</th>
                 </tr>
             </thead>
+
             <tbody>
+
                 {% for t in transactions %}
+
                 <tr>
-                    <td>{{ t.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+
+                    <td>
+                        {{ t.created_at.strftime('%d.%m.%Y %H:%M') }}
+                    </td>
+
+
                     <td>
                         {% if t.type == 'in' %}
                             <span class="badge bg-success">Приход</span>
+                        {% elif t.type == 'move_in' %}
+                            <span class="badge bg-success">Перемещение →</span>
+                        {% elif t.type == 'move_out' %}
+                            <span class="badge bg-danger">Перемещение ←</span>
                         {% else %}
                             <span class="badge bg-danger">Расход</span>
                         {% endif %}
                     </td>
-                    <td><strong>{{ t.batch.material.name }}</strong> {{ t.batch.material.size or '' }}</td>
-                    <td>{{ t.quantity }} шт.</td>
-                    <td>{{ t.user.full_name or t.user.username }}</td>
-                    <td>{{ t.note or '—' }}</td>
+
+
+                    <td>
+
+                        {% if t.request_item %}
+
+                            <div>
+                                <strong>
+                                    Фактически:
+                                    {{ t.request_item.transferred_material.name
+                                       if t.request_item.transferred_material
+                                       else t.batch.material.name }}
+                                    {{ t.request_item.transferred_material.size
+                                       if t.request_item.transferred_material
+                                       else t.batch.material.size or '' }}
+                                </strong>
+                            </div>
+
+                            <div class="small text-muted mt-1">
+                                Запрошено:
+                                {{ t.request_item.material.name }}
+                                {{ t.request_item.material.size or '' }}
+                                — {{ t.request_item.requested_quantity }} шт.
+                            </div>
+
+                            <div class="small mt-1">
+                                Фактически:
+                                {{ t.request_item.transferred_quantity or t.quantity }} шт.
+                            </div>
+
+                        {% else %}
+
+                            <strong>
+                                {{ t.batch.material.name }}
+                            </strong>
+                            {{ t.batch.material.size or '' }}
+
+                        {% endif %}
+
+                    </td>
+
+
+                    <td>
+                        <strong>{{ t.quantity }} шт.</strong>
+                    </td>
+
+
+                    <td>
+
+                        {% if t.request_item %}
+
+                            <span class="badge bg-primary">
+                                №{{ t.request_item.request.id }}
+                            </span>
+
+                        {% else %}
+
+                            —
+
+                        {% endif %}
+
+                    </td>
+
+
+                    <td>
+                        {{ t.user.full_name or t.user.username }}
+                    </td>
+
+
+                    <td>
+                        {{ t.note or '—' }}
+                    </td>
+
                 </tr>
+
                 {% else %}
+
                 <tr>
-                    <td colspan="6" class="text-center text-muted">Операций пока нет</td>
+                    <td colspan="7" class="text-center text-muted">
+                        Операций пока нет
+                    </td>
                 </tr>
+
                 {% endfor %}
+
             </tbody>
+
         </table>
     </div>
 </div>
+
 {% endblock %}
